@@ -161,6 +161,8 @@ class MtCompact {
 
     void setPrimaryChanByHash(uint8_t chan_hash) { pri_chan_hash = chan_hash; }  // set what is the default channel. //todo replace with chanmgr function!
 
+    void setFilterAllOutgoingMessages(bool filter) { filter_all_outgoing_messages = filter; }  // if true, we add all outgoing packages to the filter, so no alert on receive it back
+
     // Radio settings on the fly
     bool setRadioFrequency(float freq);
     bool setRadioSpreadingFactor(uint8_t sf);
@@ -235,6 +237,8 @@ class MtCompact {
     bool is_in_stealth_mode = false;  // if true, we don't respond to traceroute even in auto full node mode! harder to find us. We even don't send ack.
 
     bool ok_to_mqtt = true;  // set or don't set the flag.
+
+    bool filter_all_outgoing_messages = false;  // if true, we will drop heard back packages.
 
     MCT_MyNodeInfo my_nodeinfo;  // My node info. Used in many places. Set it carefully.
 

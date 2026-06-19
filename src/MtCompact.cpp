@@ -424,6 +424,8 @@ void MtCompact::task_send(void* pvParameters) {
                     // channel busy, wait a bit
                     vTaskDelay(20 / portTICK_PERIOD_MS);
                 }
+                // add it to the router, so we don't wanna receive it again
+                if (mshcomp->filter_all_outgoing_messages) mshcomp->router.onCheck(entry.header.srcnode, entry.header.packet_id);
                 ESP_LOGE(TAG, "Try send packet");
                 int err = mshcomp->radio->transmit(payload, total_len);
                 if (err == RADIOLIB_ERR_NONE) {
