@@ -30,11 +30,11 @@ enum class MCC_PAYLOAD_TYPE : uint8_t {
     PAYLOAD_TYPE_RAW_CUSTOM = 0x0F
 };
 
-enum class MCC_ADDR_FORMAT : uint8_t {
-    ADDR_FORMAT_1 = 0x00,           // 1-byte src/dest hashes, 2-byte MAC
-    ADDR_FORMAT_RESERVED_1 = 0x01,  // Future version: 2-byte hashes, 4-byte MAC
-    ADDR_FORMAT_RESERVED_2 = 0x02,  // Future version
-    ADDR_FORMAT_RESERVED_3 = 0x03   // Future version
+enum class MCC_PAYLOADVER : uint8_t {
+    PAYLOAD_V1 = 0x00,  // 1-byte src/dest hashes, 2-byte MAC
+    PAYLOAD_V2 = 0x01,  // Future version: 2-byte hashes, 4-byte MAC
+    PAYLOAD_V3 = 0x02,  // Future version
+    PAYLOAD_V4 = 0x03   // Future version
 };
 
 enum class MCC_NODEINFO_FLAGS : uint8_t {
@@ -56,8 +56,8 @@ class MCC_Header {
     MCC_PAYLOAD_TYPE get_payload_type() {
         return (MCC_PAYLOAD_TYPE)((header >> 2) & 0x0F);
     }
-    MCC_ADDR_FORMAT get_addr_format() {
-        return (MCC_ADDR_FORMAT)((header >> 6) & 0x03);
+    MCC_PAYLOADVER get_payload_version() {
+        return (MCC_PAYLOADVER)((header >> 6) & 0x03);
     }
 
     uint32_t get_transport_codes() {
@@ -207,6 +207,20 @@ class MCC_Nodeinfo {
         }
         return pos;
     }
+
+    bool isChat() const {
+        return (flags & (uint8_t)MCC_NODEINFO_FLAGS::IS_CHAT_NODE) != 0;
+    }
+    bool isRepeater() const {
+        return (flags & (uint8_t)MCC_NODEINFO_FLAGS::IS_REPEATER) != 0;
+    }
+    bool isRoomServer() const {
+        return (flags & (uint8_t)MCC_NODEINFO_FLAGS::IS_ROOM_SERVER) != 0;
+    }
+    bool isSensor() const {
+        return (flags & (uint8_t)MCC_NODEINFO_FLAGS::IS_SENSOR) != 0;
+    }
+
     uint8_t pubkey[32];
     uint32_t timestamp;
     uint8_t flags;

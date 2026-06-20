@@ -44,7 +44,7 @@ size_t McCompatChanMgr::getChannelCount() {
 MCC_ChannelEntry* McCompatChanMgr::getChannelByHashAndData(uint8_t* payload, size_t payload_len, uint8_t* decoded, size_t& out_decoded_len) {
     // todo
     for (auto& channel : channels) {
-        ESP_LOGI("ChanMgr", "Trying channel %s with hash 0x%02x  :   0x%02x ", channel.name.c_str(), channel.hash[0], payload[0]);
+        // ESP_LOGI("ChanMgr", "Trying channel %s with hash 0x%02x  :   0x%02x ", channel.name.c_str(), channel.hash[0], payload[0]);
         if (channel.hash[0] == payload[0]) {
             ESP_LOGI("ChanMgr", "Channel %s matched hash", channel.name.c_str());
             auto lenn = McCompact::MACThenDecrypt(channel.secret, decoded, payload + 1, payload_len - 1);
