@@ -222,9 +222,9 @@ class MCC_Nodeinfo {
         flags = data[pos++];
         if (flags & (uint8_t)MCC_NODEINFO_FLAGS::HAS_LOCATION) {
             if (len < pos + 7) return 0;
-            latitude_i = *((uint32_t*)&data[pos]);
+            latitude_i = *((int32_t*)&data[pos]);
             pos += 4;
-            longitude_i = *((uint32_t*)&data[pos]);
+            longitude_i = *((int32_t*)&data[pos]);
             pos += 4;
             has_location = true;
         } else {
@@ -262,8 +262,8 @@ class MCC_Nodeinfo {
     uint8_t pubkey[32];
     uint32_t timestamp;
     uint8_t flags;
-    uint32_t latitude_i;   // optional
-    uint32_t longitude_i;  // optional
+    int32_t latitude_i;   // optional
+    int32_t longitude_i;  // optional
     std::string name;
     bool has_location = false;
 };
