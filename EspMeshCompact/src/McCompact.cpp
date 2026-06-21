@@ -5,11 +5,12 @@
 #define TAG "McCompact"
 
 volatile bool packetFlag = false;
+volatile bool packet_during_send = false;
 
 static_assert(CONFIG_ESP_MAIN_TASK_STACK_SIZE >= 8000, "Main task stack size must be at least 8000 bytes!");
 
 void IRAM_ATTR onPacketReceived() {
-    packetFlag = true;
+    packetFlag = true && !packet_during_send;  // Only set the flag if not currently sending
 }
 
 McCompact::McCompact() {
@@ -288,6 +289,7 @@ void McCompact::task_send(void* pvParameters) {
         }
         if (mshcomp->is_send_enabled) {
             {
+                packet_during_send = true;  // Indicate that we are currently sending a packet
                 std::unique_lock<std::mutex> lock(mshcomp->mtx_radio);
                 ESP_LOGE(TAG, "Try send packet. Len: %d", entry.length);
                 int err = mshcomp->radio->transmit(entry.payload, entry.length);
@@ -303,6 +305,7 @@ void McCompact::task_send(void* pvParameters) {
                         ESP_LOGE(TAG, "Failed to send packet 2 times in a row, code %d", err);
                     }
                 }
+                packet_during_send = false;      // Reset the flag after sending
                 mshcomp->radio->startReceive();  // Restart receiving after sending
             }
         }
