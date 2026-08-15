@@ -1,11 +1,13 @@
 version: "0.8.0"
-name: "EspMeshCompact"
-description: "Mesh library (MT,MC)"
+description: "Compact Meshtastic and MeshCore mesh protocol component for the ESP32-S3"
 url: "https://github.com/htotoo/EspMeshCompact"
 repository: "https://github.com/htotoo/EspMeshCompact"
 issues: "https://github.com/htotoo/EspMeshCompact/issues"
+license: "LicenseRef-HTL"
 maintainers:
   - "HTotoo"
+targets:
+  - esp32s3
 dependencies:
   idf:
     version: ">=5.4.0"
@@ -15,3 +17,15 @@ tags:
   - "meshtastic"
   - "meshcore"
   - "lora"
+examples:
+  - path: examples/mc_receiver
+  - path: examples/mt_listener
+files:
+  exclude:
+    - "**/build/**"
+    - "**/managed_components/**"
+    - "**/sdkconfig"
+    - "**/sdkconfig.old"
+    - "dist/**"
+    - "library.json"
+    - ".clangd"

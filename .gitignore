@@ -17,6 +17,7 @@ pytest_embedded_log/
 # idf-component-manager output
 dependencies.lock
 sdkconfig.old
+dist/
 
 .devcontainer/
 .vscode/
