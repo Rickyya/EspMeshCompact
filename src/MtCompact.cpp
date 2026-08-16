@@ -13,7 +13,6 @@
 #include <Curve25519.h>
 
 #include <SHA256.h>
-#include "aes-ccm.h"
 
 #define TAG "MtCompact"
 
@@ -40,6 +39,7 @@ void IRAM_ATTR onPacketReceived() {
 }
 MtCompact::MtCompact() {
     mbedtls_aes_init(&aes_ctx);
+    mbedtls_ccm_init(&ccm_ctx);
     uint64_t mac;
     esp_efuse_mac_get_default((uint8_t*)&mac);  // Use the last 4 bytes of the MAC address as the node ID
     my_nodeinfo.node_id = (uint32_t)(mac & 0xFFFFFFFF);
@@ -61,6 +61,7 @@ MtCompact::MtCompact() {
 
 MtCompact::~MtCompact() {
     mbedtls_aes_free(&aes_ctx);
+    mbedtls_ccm_free(&ccm_ctx);
     need_run = false;  // Stop the tasks
     packetFlag = true;
     out_queue.stop_wait();                 // Notify any waiting pop() to unblock immediately
@@ -392,9 +393,9 @@ void MtCompact::task_send(void* pvParameters) {
 
             if (!aesenc) {
                 // private message, encrypt with that method if pubkey is availeable
-                // todo length check for the +12
+                // todo length check for the +MT_PKI_OVERHEAD
                 mshcomp->encryptCurve25519(entry.header.dstnode, entry.header.srcnode, dstpub, entry.header.packet_id, payload_len, payload, encrypted_payload);
-                payload_len += 12;  // Curve25519 adds 16 bytes overhead
+                payload_len += MT_PKI_OVERHEAD;  // 8-byte CCM tag + 4-byte extra nonce
             } else {
                 if (mshcomp->aes_decrypt_meshtastic_payload(entry.key, entry.key_len * 8, entry.header.packet_id, entry.header.srcnode, payload, encrypted_payload, payload_len)) {
                 } else {
@@ -1442,36 +1443,60 @@ void MtCompact::initNonce(uint32_t fromNode, uint64_t packetId, uint32_t extraNo
         memcpy(nonce + sizeof(uint32_t), &extraNonce, sizeof(uint32_t));
 }
 
+// The PKI wire format is: ciphertext (numBytes) || tag (8) || extraNonce (4),
+// i.e. MT_PKI_OVERHEAD bytes on top of the plaintext.
 bool MtCompact::encryptCurve25519(uint32_t toNode, uint32_t fromNode, uint8_t* remotePublic, uint64_t packetNum, size_t numBytes, const uint8_t* bytes, uint8_t* bytesOut) {
-    uint8_t* auth;
-    long extraNonceTmp = esp_random();
-    auth = bytesOut + numBytes;
-    memcpy((uint8_t*)(auth + 8), &extraNonceTmp, sizeof(uint32_t));  // do not use dereference on potential non aligned pointers : *extraNonce = extraNonceTmp;
+    uint32_t extraNonceTmp = esp_random();
+    uint8_t* auth = bytesOut + numBytes;
     if (!setDHPublicKey(remotePublic)) {
         return false;
     }
     hash(shared_key, 32);
     initNonce(fromNode, packetNum, extraNonceTmp);
     if (debugmode) {
-        ESP_LOGI("MT_CRYPTO", "Encrypting with Curve25519  packet %llu extraNonce %ld", packetNum, extraNonceTmp);
+        ESP_LOGI("MT_CRYPTO", "Encrypting with Curve25519  packet %llu extraNonce %" PRIu32, packetNum, extraNonceTmp);
     }
-    // Calculate the shared secret with the destination node and encrypt
-    aes_ccm_ae(shared_key, 32, nonce, 8, bytes, numBytes, nullptr, 0, bytesOut, auth, aes);  // this can write up to 15 bytes longer than numbytes past bytesOut
-    memcpy((uint8_t*)(auth + 8), &extraNonceTmp, sizeof(uint32_t));                          // do not use dereference on potential non aligned pointers : *extraNonce = extraNonceTmp;
+    // Calculate the shared secret with the destination node and encrypt.
+    int ret = mbedtls_ccm_setkey(&ccm_ctx, MBEDTLS_CIPHER_ID_AES, shared_key, 256);
+    if (ret == 0) {
+        // iv_len 13 selects CCM L=2, matching the Meshtastic wire format.
+        ret = mbedtls_ccm_encrypt_and_tag(&ccm_ctx, numBytes, nonce, 13, nullptr, 0,
+                                          bytes, bytesOut, auth, MT_PKI_TAG_SIZE);
+    }
+    if (ret != 0) {
+        ESP_LOGE("MT_CRYPTO", "CCM encrypt failed: -0x%04x", (unsigned)-ret);
+        return false;
+    }
+    // Trailing extra nonce. Written after the AEAD so it cannot be clobbered.
+    // do not use dereference on potential non aligned pointers.
+    memcpy(auth + MT_PKI_TAG_SIZE, &extraNonceTmp, sizeof(uint32_t));
     return true;
 }
 
 bool MtCompact::decryptCurve25519(uint32_t fromNode, uint8_t* remotePublic, uint64_t packetNum, size_t numBytes, const uint8_t* bytes, uint8_t* bytesOut) {
-    const uint8_t* auth = bytes + numBytes - 12;
+    if (numBytes < MT_PKI_OVERHEAD) {
+        return false;
+    }
+    size_t cipherLen = numBytes - MT_PKI_OVERHEAD;
+    const uint8_t* auth = bytes + cipherLen;
     uint32_t extraNonce;
-    memcpy(&extraNonce, auth + 8, sizeof(uint32_t));
+    memcpy(&extraNonce, auth + MT_PKI_TAG_SIZE, sizeof(uint32_t));
     // Calculate the shared secret with the sending node and decrypt
     if (!setDHPublicKey(remotePublic)) {
         return false;
     }
     hash(shared_key, 32);
     initNonce(fromNode, packetNum, extraNonce);
-    return aes_ccm_ad(shared_key, 32, nonce, 8, bytes, numBytes - 12, nullptr, 0, auth, bytesOut, aes);
+    int ret = mbedtls_ccm_setkey(&ccm_ctx, MBEDTLS_CIPHER_ID_AES, shared_key, 256);
+    if (ret != 0) {
+        ESP_LOGE("MT_CRYPTO", "CCM setkey failed: -0x%04x", (unsigned)-ret);
+        return false;
+    }
+    // Returns MBEDTLS_ERR_CCM_AUTH_FAILED on a tag mismatch, which is the
+    // normal outcome when the packet was not meant for us.
+    ret = mbedtls_ccm_auth_decrypt(&ccm_ctx, cipherLen, nonce, 13, nullptr, 0,
+                                   bytes, bytesOut, auth, MT_PKI_TAG_SIZE);
+    return ret == 0;
 }
 
 bool MtCompact::setDHPublicKey(uint8_t* pubKey) {

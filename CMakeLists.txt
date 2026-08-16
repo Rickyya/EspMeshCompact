@@ -17,7 +17,6 @@ set(mesh_srcs
     "src/MtCompactFileIO.cpp"
     "src/MtCompactHelpers.cpp"
     "src/MtMessageStore.cpp"
-    "src/aes-ccm.cpp"
     "src/unishox2.cpp"
     )
 
@@ -119,9 +118,9 @@ set(ed25519_srcs
 # INCLUDE_DIRS is a public interface -- every dependent gets these on its
 # include path. "." is required because the generated protobuf headers include
 # each other as "meshtastic/<name>.pb.h". "lib/Crypto" and "lib/ed25519" are
-# required because include/MtCompact.hpp, include/MtCompactHelpers.hpp and
-# include/aes-ccm.h include "AES.h" and src/McCompactStructs.cpp includes
-# "ed_25519.h". Both drop out once the libsodium port lands.
+# required because include/MtCompactHelpers.hpp includes "Curve25519.h" and
+# src/McCompactStructs.cpp includes "ed_25519.h". Both drop out once the
+# libsodium port lands.
 idf_component_register(
     SRCS ${mesh_srcs} ${nanopb_srcs} ${meshtastic_srcs} ${crypto_srcs} ${ed25519_srcs}
     INCLUDE_DIRS "." "include" "lib/Crypto" "lib/ed25519"

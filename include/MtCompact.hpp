@@ -10,6 +10,7 @@
 #include "EspHal.h"
 #include "esp_random.h"
 #include "mbedtls/aes.h"
+#include "mbedtls/ccm.h"
 #include <string>
 #include "meshtastic/mesh.pb.h"
 #include "MtCompactStructs.hpp"
@@ -23,7 +24,13 @@
 #include "MtCompactFileIO.hpp"
 #include "MtCompactHelpers.hpp"
 #include "MtCompactChanMgr.hpp"
-#include "AES.h"
+
+// Curve25519 (PKI) packets carry an 8-byte CCM tag and a 4-byte extra nonce
+// after the ciphertext, so an encrypted payload is MT_PKI_OVERHEAD bytes
+// longer than its plaintext.
+#define MT_PKI_TAG_SIZE 8
+#define MT_PKI_EXTRA_NONCE_SIZE 4
+#define MT_PKI_OVERHEAD (MT_PKI_TAG_SIZE + MT_PKI_EXTRA_NONCE_SIZE)
 
 class MtCompact {
    public:
@@ -253,9 +260,9 @@ class MtCompact {
 
     uint8_t shared_key[32] = {0};
     uint8_t nonce[16] = {0};
-    AESSmall256* aes = NULL;
 
     mbedtls_aes_context aes_ctx;
+    mbedtls_ccm_context ccm_ctx;  // PKI (Curve25519) AES-256-CCM, keyed per packet
     mutable std::mutex mtx_radio;
     bool need_run = true;  // thread exit flag
 
