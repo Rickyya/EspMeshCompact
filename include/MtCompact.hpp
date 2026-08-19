@@ -54,6 +54,14 @@ class MtCompact {
     using OnNativeWaypointMessageCallback = void (*)(MCT_Header& header, meshtastic_Waypoint& waypoint);
     using OnNativeTelemetryDeviceCallback = void (*)(MCT_Header& header, meshtastic_DeviceMetrics& telemetry);
     using OnNativeTelemetryEnvironmentCallback = void (*)(MCT_Header& header, meshtastic_EnvironmentMetrics& telemetry);
+    // These four variants have no compact MCT_ mirror: between them they carry
+    // some fifty fields, and mirroring all of them would be more copy code than
+    // the data is worth here. The decoded protobuf is handed over directly.
+    using OnNativeTelemetryAirQualityCallback = void (*)(MCT_Header& header, meshtastic_AirQualityMetrics& telemetry);
+    using OnNativeTelemetryPowerCallback = void (*)(MCT_Header& header, meshtastic_PowerMetrics& telemetry);
+    using OnNativeTelemetryLocalStatsCallback = void (*)(MCT_Header& header, meshtastic_LocalStats& telemetry);
+    using OnNativeTelemetryHealthCallback = void (*)(MCT_Header& header, meshtastic_HealthMetrics& telemetry);
+    using OnNativeTelemetryHostCallback = void (*)(MCT_Header& header, meshtastic_HostMetrics& telemetry);
 
     void setOnWaypointMessage(OnWaypointMessageCallback cb) { onWaypointMessage = cb; }
     void setOnNodeInfoMessage(OnNodeInfoCallback cb) { onNodeInfo = cb; }
@@ -69,6 +77,11 @@ class MtCompact {
     void setOnNativeWaypointMessage(OnNativeWaypointMessageCallback cb) { onNativeWaypointMessage = cb; }
     void setOnNativeTelemetryDevice(OnNativeTelemetryDeviceCallback cb) { onNativeTelemetryDevice = cb; }
     void setOnNativeTelemetryEnvironment(OnNativeTelemetryEnvironmentCallback cb) { onNativeTelemetryEnvironment = cb; }
+    void setOnNativeTelemetryAirQuality(OnNativeTelemetryAirQualityCallback cb) { onNativeTelemetryAirQuality = cb; }
+    void setOnNativeTelemetryPower(OnNativeTelemetryPowerCallback cb) { onNativeTelemetryPower = cb; }
+    void setOnNativeTelemetryLocalStats(OnNativeTelemetryLocalStatsCallback cb) { onNativeTelemetryLocalStats = cb; }
+    void setOnNativeTelemetryHealth(OnNativeTelemetryHealthCallback cb) { onNativeTelemetryHealth = cb; }
+    void setOnNativeTelemetryHost(OnNativeTelemetryHostCallback cb) { onNativeTelemetryHost = cb; }
 
     // To enable or disable this module's logging to serial
     void setDebugMode(bool enabled) {
@@ -278,6 +291,11 @@ class MtCompact {
     // Callback function pointers
     OnMessageCallback onMessage = nullptr;  // Function pointer for onMessage callback
     OnRoutingCallback onRouting = nullptr;  // Function pointer for onRouting callback
+    OnNativeTelemetryAirQualityCallback onNativeTelemetryAirQuality = nullptr;
+    OnNativeTelemetryPowerCallback onNativeTelemetryPower = nullptr;
+    OnNativeTelemetryLocalStatsCallback onNativeTelemetryLocalStats = nullptr;
+    OnNativeTelemetryHealthCallback onNativeTelemetryHealth = nullptr;
+    OnNativeTelemetryHostCallback onNativeTelemetryHost = nullptr;
     OnPositionMessageCallback onPositionMessage = nullptr;
     OnNodeInfoCallback onNodeInfo = nullptr;
     OnWaypointMessageCallback onWaypointMessage = nullptr;

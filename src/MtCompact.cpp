@@ -940,7 +940,7 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                     ESP_LOGI(TAG, "Received a TELEMETRY_APP   packet");
                 }
                 // payload: Protobuf
-                meshtastic_Telemetry telemetry_msg = {};  // todo store and callback
+                meshtastic_Telemetry telemetry_msg = {};
                 if (pb_decode_from_bytes(decodedtmp.payload.bytes, decodedtmp.payload.size, &meshtastic_Telemetry_msg, &telemetry_msg)) {
                     // ESP_LOGI(TAG, "Telemetry Time: %lu", telemetry_msg.time);
                     switch (telemetry_msg.which_variant) {
@@ -951,21 +951,19 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                             intOnTelemetryEnvironment(header, telemetry_msg);
                             break;
                         case meshtastic_Telemetry_air_quality_metrics_tag:
-                            // ESP_LOGI(TAG, "Air Quality Metrics: PM2.5: %lu ", telemetry_msg.variant.air_quality_metrics.pm25_standard);
-                            // skipping, not interesting yet PR-s are welcome
+                            if (onNativeTelemetryAirQuality) onNativeTelemetryAirQuality(header, telemetry_msg.variant.air_quality_metrics);
                             break;
                         case meshtastic_Telemetry_power_metrics_tag:
-                            // skipping, not interesting yet PR-s are welcome
+                            if (onNativeTelemetryPower) onNativeTelemetryPower(header, telemetry_msg.variant.power_metrics);
                             break;
                         case meshtastic_Telemetry_local_stats_tag:
-                            // skipping, not interesting yet PR-s are welcome
+                            if (onNativeTelemetryLocalStats) onNativeTelemetryLocalStats(header, telemetry_msg.variant.local_stats);
                             break;
                         case meshtastic_Telemetry_health_metrics_tag:
-                            // ESP_LOGI(TAG, "Health Metrics: Hearth BPM: %u, Temp: %f  So2: %u", telemetry_msg.variant.health_metrics.heart_bpm, telemetry_msg.variant.health_metrics.temperature, telemetry_msg.variant.health_metrics.spO2);
-                            //  skipping, not interesting yet PR-s are welcome
+                            if (onNativeTelemetryHealth) onNativeTelemetryHealth(header, telemetry_msg.variant.health_metrics);
                             break;
                         case meshtastic_Telemetry_host_metrics_tag:
-                            // skipping, not interesting yet PR-s are welcome
+                            if (onNativeTelemetryHost) onNativeTelemetryHost(header, telemetry_msg.variant.host_metrics);
                             break;
                     };
                 } else {
