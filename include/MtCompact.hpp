@@ -146,6 +146,19 @@ class MtCompact {
 
     void setOkToMqtt(bool ok) { ok_to_mqtt = ok; }  // if true, sets the flag in the header, the messages can sent to mqtt broker
 
+    /**
+     * @brief Compress outgoing plain text with Unishox2 when it saves space.
+     *
+     * Sends TEXT_MESSAGE_COMPRESSED_APP instead of TEXT_MESSAGE_APP whenever the
+     * compressed form is actually shorter, which is what the Meshtastic firmware
+     * itself does. Receiving firmware decompresses it and hands the application
+     * back a normal text message.
+     *
+     * Off by default: this changes what goes on air, and portnum 7 sees little
+     * real-world traffic, so it is opt-in rather than a silent behaviour change.
+     */
+    void setTextCompression(bool enabled) { compress_text = enabled; }
+
     // packet senders
     /**
      * @brief Send node information
@@ -269,6 +282,7 @@ class MtCompact {
     bool is_in_stealth_mode = false;  // if true, we don't respond to traceroute even in auto full node mode! harder to find us. We even don't send ack.
 
     bool ok_to_mqtt = true;  // set or don't set the flag.
+    bool compress_text = false;  // see setTextCompression()
 
     bool filter_all_outgoing_messages = false;  // if true, we will drop heard back packages.
 

@@ -1270,6 +1270,10 @@ void MtCompact::sendTextMessage(const std::string& text, uint32_t dstnode, uint1
     entry.encType = encryption;
     entry.data.request_id = 0;
     entry.data.reply_id = replyid;
+    if (text.size() > sizeof(entry.data.payload.bytes)) {
+        ESP_LOGE(TAG, "Text message too long: %u > %u", (unsigned)text.size(), (unsigned)sizeof(entry.data.payload.bytes));
+        return;
+    }
     entry.data.payload.size = text.size();
     memcpy(entry.data.payload.bytes, text.data(), text.size());
     entry.data.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;  // NodeInfo portnum
@@ -1286,6 +1290,21 @@ void MtCompact::sendTextMessage(const std::string& text, uint32_t dstnode, uint1
     }
     entry.data.want_response = 0;
     entry.data.emoji = emoji ? 1 : 0;
+
+    // Only plain text has a compressed portnum. USX_PSET_DFLT must match the
+    // preset the receive path passes to unishox2_decompress().
+    if (compress_text && entry.data.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !text.empty()) {
+        char compressed[sizeof(entry.data.payload.bytes)];
+        int clen = unishox2_compress(text.data(), (int)text.size(), compressed, (int)sizeof(compressed), USX_PSET_DFLT);
+        if (clen > 0 && (size_t)clen < text.size()) {
+            memcpy(entry.data.payload.bytes, compressed, clen);
+            entry.data.payload.size = clen;
+            entry.data.portnum = meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP;
+            if (debugmode) {
+                ESP_LOGI(TAG, "Compressed text %u -> %d bytes", (unsigned)text.size(), clen);
+            }
+        }
+    }
 
     entry.data.bitfield = 0;
     if (ok_to_mqtt) entry.data.bitfield |= 1 << BITFIELD_OK_TO_MQTT_SHIFT;  // Set the MQTT upload bit
