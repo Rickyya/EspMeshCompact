@@ -582,7 +582,7 @@ void MtCompact::intOnWaypointMessage(MCT_Header& header, meshtastic_Waypoint& wa
     waypoint.id = waypoint_msg.id;
     waypoint.has_latitude_i = waypoint_msg.has_latitude_i;
     waypoint.has_longitude_i = waypoint_msg.has_longitude_i;
-    // should save this to waypoint database //todo
+    waypoint_db.upsert(waypoint);
     if (onWaypointMessage) {
         onWaypointMessage(header, waypoint);
     };
@@ -625,6 +625,30 @@ void MtCompact::intOnTelemetryEnvironment(MCT_Header& header, _meshtastic_Teleme
     if (onNativeTelemetryEnvironment) {
         onNativeTelemetryEnvironment(header, telemetry_msg.variant.environment_metrics);
     }
+}
+
+void MtCompact::intOnRouting(MCT_Header& header, meshtastic_Routing& routing_msg) {
+    if (!onRouting) {
+        return;
+    }
+    MCT_Routing routing = {};
+    // request_id identifies the packet being reported on. It lives on the Data
+    // message, which try_decode_root_packet has already copied into the header.
+    routing.request_id = header.request_id;
+    switch (routing_msg.which_variant) {
+        case meshtastic_Routing_route_request_tag:
+            routing.type = MCT_ROUTING_TYPE_ROUTE_REQUEST;
+            break;
+        case meshtastic_Routing_route_reply_tag:
+            routing.type = MCT_ROUTING_TYPE_ROUTE_REPLY;
+            break;
+        case meshtastic_Routing_error_reason_tag:
+        default:
+            routing.error_reason = (uint8_t)routing_msg.error_reason;
+            routing.type = (routing_msg.error_reason == meshtastic_Routing_Error_NONE) ? MCT_ROUTING_TYPE_ACK : MCT_ROUTING_TYPE_NAK;
+            break;
+    }
+    onRouting(header, routing);
 }
 
 void MtCompact::intOnTraceroute(MCT_Header& header, meshtastic_RouteDiscovery& route_discovery_msg) {
@@ -811,11 +835,12 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                     ESP_LOGI(TAG, "Received a routing packet");
                 }
                 // payload: protobuf Routing
-                meshtastic_Routing routing_msg = {};  // todo process it. this is just a debug. or simply drop it.
+                meshtastic_Routing routing_msg = {};
                 if (pb_decode_from_bytes(decodedtmp.payload.bytes, decodedtmp.payload.size, &meshtastic_Routing_msg, &routing_msg)) {
                     if (debugmode) {
                         ESP_LOGI(TAG, "Routing reply count: %d", routing_msg.route_reply.route_count);
                     }
+                    intOnRouting(header, routing_msg);
                 } else {
                     if (debugmode) {
                         ESP_LOGE(TAG, "Failed to decode Routing");

@@ -15,6 +15,22 @@ typedef enum {
     MCT_MESSAGE_TYPE_RANGE_TEST = 5,        // Range test message
 } MCT_MESSAGE_TYPE;
 
+// What a received ROUTING_APP packet is telling us. An ACK/NAK refers to the
+// packet whose id is request_id; a route request/reply carries a RouteDiscovery
+// (surfaced separately through the traceroute callback).
+typedef enum {
+    MCT_ROUTING_TYPE_ACK = 0,            // delivery confirmed
+    MCT_ROUTING_TYPE_NAK = 1,            // delivery failed, see error_reason
+    MCT_ROUTING_TYPE_ROUTE_REQUEST = 2,  // a route is being discovered
+    MCT_ROUTING_TYPE_ROUTE_REPLY = 3,    // a discovered route is being reported
+} MCT_ROUTING_TYPE;
+
+struct MCT_Routing {
+    MCT_ROUTING_TYPE type;
+    uint32_t request_id;   // id of the packet this refers to, 0 if unknown
+    uint8_t error_reason;  // meshtastic_Routing_Error, NONE (0) for an ACK
+};
+
 struct MCT_Header {
     uint32_t srcnode;  // source node ID
     uint32_t dstnode;  // destination node ID

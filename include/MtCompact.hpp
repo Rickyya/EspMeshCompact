@@ -24,6 +24,7 @@
 #include "MtCompactFileIO.hpp"
 #include "MtCompactHelpers.hpp"
 #include "MtCompactChanMgr.hpp"
+#include "MtCompactWaypointDB.hpp"
 
 // Curve25519 (PKI) packets carry an 8-byte CCM tag and a 4-byte extra nonce
 // after the ciphertext, so an encrypted payload is MT_PKI_OVERHEAD bytes
@@ -46,6 +47,7 @@ class MtCompact {
     using OnTelemetryDeviceCallback = void (*)(MCT_Header& header, MCT_Telemetry_Device& telemetry);
     using OnTelemetryEnvironmentCallback = void (*)(MCT_Header& header, MCT_Telemetry_Environment& telemetry);
     using OnTracerouteCallback = void (*)(MCT_Header& header, MCT_RouteDiscovery& route, bool for_me, bool is_reply, bool need_reply);
+    using OnRoutingCallback = void (*)(MCT_Header& header, MCT_Routing& routing);
     using OnRaw = void (*)(const uint8_t* data, size_t len);
     using OnNativePositionMessageCallback = void (*)(MCT_Header& header, meshtastic_Position& position, bool needReply);
     using OnNativeNodeInfoCallback = void (*)(MCT_Header& header, meshtastic_User& nodeinfo, bool needReply, bool newNode);
@@ -60,6 +62,7 @@ class MtCompact {
     void setOnTelemetryDevice(OnTelemetryDeviceCallback cb) { onTelemetryDevice = cb; }
     void setOnTelemetryEnvironment(OnTelemetryEnvironmentCallback cb) { onTelemetryEnvironment = cb; }
     void setOnTraceroute(OnTracerouteCallback cb) { onTraceroute = cb; }
+    void setOnRouting(OnRoutingCallback cb) { onRouting = cb; }  // ACK/NAK for a packet we sent
     void setOnRaw(OnRaw cb) { onRaw = cb; }
     void setOnNativePositionMessage(OnNativePositionMessageCallback cb) { onNativePositionMessage = cb; }
     void setOnNativeNodeInfo(OnNativeNodeInfoCallback cb) { onNativeNodeInfo = cb; }
@@ -202,6 +205,7 @@ class MtCompact {
     MtCompactRouter router;    // Router for message deduplication. Set MyId if you changed that. Also you can disable exclude self option
     MCT_Position my_position;  // My position, used for auto replies (when enabled) on position requests. Or when you call sendMyPosition()
     MtCompatChanMgr chan_mgr;  // Channel manager for handling multiple channels
+    WaypointDB waypoint_db;    // Received waypoints, keyed by waypoint id
    private:
     RadioType radio_type;
     bool radioListen();    // inits the listening thread for the radio
@@ -214,6 +218,7 @@ class MtCompact {
     void intOnTelemetryDevice(MCT_Header& header, _meshtastic_Telemetry& telemetry);                // Called on telemetry device messages
     void intOnTelemetryEnvironment(MCT_Header& header, _meshtastic_Telemetry& telemetry_msg);       // Called on telemetry environment messages
     void intOnTraceroute(MCT_Header& header, meshtastic_RouteDiscovery& route_discovery_msg);       // Called on traceroute messages
+    void intOnRouting(MCT_Header& header, meshtastic_Routing& routing_msg);                         // Called on routing (ACK/NAK) messages
 
     // crypto
     bool encryptCurve25519(uint32_t toNode, uint32_t fromNode, uint8_t* remotePublic, uint64_t packetNum, size_t numBytes, const uint8_t* bytes, uint8_t* bytesOut);
@@ -272,6 +277,7 @@ class MtCompact {
 
     // Callback function pointers
     OnMessageCallback onMessage = nullptr;  // Function pointer for onMessage callback
+    OnRoutingCallback onRouting = nullptr;  // Function pointer for onRouting callback
     OnPositionMessageCallback onPositionMessage = nullptr;
     OnNodeInfoCallback onNodeInfo = nullptr;
     OnWaypointMessageCallback onWaypointMessage = nullptr;

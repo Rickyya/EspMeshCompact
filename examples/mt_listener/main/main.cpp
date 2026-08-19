@@ -71,6 +71,17 @@ extern "C" void app_main(void) {
                header.srcnode, nodeinfo.long_name, nodeinfo.short_name, newNode ? " [new]" : "");
     });
 
+    mesh.setOnRouting([](MCT_Header& header, MCT_Routing& routing) {
+        static const char* kind[] = {"ACK", "NAK", "ROUTE_REQUEST", "ROUTE_REPLY"};
+        printf("Routing from 0x%08" PRIx32 ": %s for packet 0x%08" PRIx32 " (error %u)\n",
+               header.srcnode, kind[routing.type], routing.request_id, routing.error_reason);
+    });
+
+    mesh.setOnWaypointMessage([](MCT_Header& header, MCT_Waypoint& waypoint) {
+        printf("Waypoint 0x%08" PRIx32 " from 0x%08" PRIx32 ": %s (%zu stored)\n",
+               waypoint.id, header.srcnode, waypoint.name, mesh.waypoint_db.count());
+    });
+
     mesh.setOnPositionMessage([](MCT_Header& header, MCT_Position& position, bool needReply) {
         printf("Position from 0x%08" PRIx32 ": %.5f, %.5f alt %" PRId32 "\n",
                header.srcnode, position.latitude_i / 1e7, position.longitude_i / 1e7, position.altitude);
