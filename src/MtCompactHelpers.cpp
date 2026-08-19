@@ -1,4 +1,5 @@
 #include "MtCompactHelpers.hpp"
+#include "esp_random.h"
 
 void MtCompactHelpers::NodeInfoBuilder(MCT_NodeInfo* nodeinfo, uint32_t node_id, std::string& short_name, std::string& long_name, uint8_t hw_model) {
     nodeinfo->node_id = node_id;
@@ -83,8 +84,11 @@ void MtCompactHelpers::WaypointBuilder(MCT_Waypoint& waypoint, uint32_t id, floa
 
 void MtCompactHelpers::GeneratePrivateKey(uint8_t* private_key, uint8_t& key_size, uint8_t* public_key) {
     CryptRNG.begin("MeshCompactRNG");
-    auto noise = random();
-    CryptRNG.stir((uint8_t*)&noise, sizeof(noise));
+    // esp_random(), not libc random(): the latter is never seeded, so it
+    // returns the same sequence on every boot and stirs in no entropy at all.
+    uint32_t noise[4];
+    for (auto& n : noise) n = esp_random();
+    CryptRNG.stir((uint8_t*)noise, sizeof(noise));
     Curve25519::dh1(public_key, private_key);
     key_size = 32;
 }

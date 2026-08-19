@@ -231,7 +231,11 @@ bool MtCompact::RadioInit(RadioType radio_type, Radio_PINS& radio_pins, LoraConf
             ESP_LOGW(TAG, "Unsupported radio type, let's try: SX1262");
             radio = new SX1262(new Module(hal, radio_pins.cs, radio_pins.irq, radio_pins.rst, radio_pins.gpio));
             state = ((SX1262*)radio)->begin(lora_config.frequency, lora_config.bandwidth, lora_config.spreading_factor, lora_config.coding_rate, lora_config.sync_word, lora_config.output_power, lora_config.preamble_length, lora_config.tcxo_voltage, lora_config.use_regulator_ldo);
-            return false;
+            // Fall through to the shared error handling below. Returning here
+            // leaked both `radio` and `hal` and left the radio initialised, and
+            // the SX1262 fallback the log promises never actually took effect.
+            this->radio_type = RadioType::SX1262;
+            break;
     }
 
     if (state != RADIOLIB_ERR_NONE) {
@@ -393,8 +397,14 @@ void MtCompact::task_send(void* pvParameters) {
 
             if (!aesenc) {
                 // private message, encrypt with that method if pubkey is availeable
-                // todo length check for the +MT_PKI_OVERHEAD
-                mshcomp->encryptCurve25519(entry.header.dstnode, entry.header.srcnode, dstpub, entry.header.packet_id, payload_len, payload, encrypted_payload);
+                if (payload_len + MT_PKI_OVERHEAD > sizeof(encrypted_payload)) {
+                    ESP_LOGE(TAG, "Payload too long for PKI: %u + %u > %u", (unsigned)payload_len, (unsigned)MT_PKI_OVERHEAD, (unsigned)sizeof(encrypted_payload));
+                    continue;
+                }
+                if (!mshcomp->encryptCurve25519(entry.header.dstnode, entry.header.srcnode, dstpub, entry.header.packet_id, payload_len, payload, encrypted_payload)) {
+                    ESP_LOGE(TAG, "Failed to encrypt payload with Curve25519");
+                    continue;
+                }
                 payload_len += MT_PKI_OVERHEAD;  // 8-byte CCM tag + 4-byte extra nonce
             } else {
                 if (mshcomp->aes_decrypt_meshtastic_payload(entry.key, entry.key_len * 8, entry.header.packet_id, entry.header.srcnode, payload, encrypted_payload, payload_len)) {

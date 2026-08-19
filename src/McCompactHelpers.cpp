@@ -1,4 +1,5 @@
 #include "McCompactHelpers.hpp"
+#include "esp_random.h"
 
 void McCompactHelpers::NodeInfoBuilder(MCC_MyNodeInfo* nodeinfo, std::string& name, int32_t latitude_i, int32_t longitude_i, MCC_NODEINFO_FLAGS flags, const uint8_t* priv_key) {
     if (!nodeinfo) return;
@@ -19,7 +20,7 @@ void McCompactHelpers::GenerateRandomPath(std::vector<uint32_t>& path, size_t le
     for (size_t i = 0; i < length; ++i) {
         uint32_t entry = 0;
         for (uint8_t j = 0; j < byte_per_entry; ++j) {
-            entry |= (random() & 0xFF) << (j * 8);
+            entry |= (esp_random() & 0xFF) << (j * 8);
         }
         path.push_back(entry);
     }

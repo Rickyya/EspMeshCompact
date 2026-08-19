@@ -186,7 +186,11 @@ bool McCompact::RadioInit(RadioType radio_type, Radio_PINS& radio_pins, LoraConf
             if (debugmode) ESP_LOGW(TAG, "Unsupported radio type, let's try: SX1262");
             radio = new SX1262(new Module(hal, radio_pins.cs, radio_pins.irq, radio_pins.rst, radio_pins.gpio));
             state = ((SX1262*)radio)->begin(lora_config.frequency, lora_config.bandwidth, lora_config.spreading_factor, lora_config.coding_rate, lora_config.sync_word, lora_config.output_power, lora_config.preamble_length, lora_config.tcxo_voltage, lora_config.use_regulator_ldo);
-            return false;
+            // Fall through to the shared error handling below. Returning here
+            // leaked both `radio` and `hal` and left the radio initialised, and
+            // the SX1262 fallback the log promises never actually took effect.
+            this->radio_type = RadioType::SX1262;
+            break;
     }
 
     if (state != RADIOLIB_ERR_NONE) {
@@ -434,16 +438,16 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             memcpy(secret, peer.pubkey, PUB_KEY_SIZE);
             lenn = MACThenDecrypt(secret, datadec, macanddata, len - pos);
             if (lenn > 0) {
-                if (debugmode) ESP_LOGI(TAG, "Decrypted payload length: %d", lenn);
-                ESP_LOGI(TAG, "Decrypted payload: %s", datadec);
                 break;  // Exit the loop if decryption is successful
             }
         }
 
         if (lenn > 0) {
-            if (debugmode) ESP_LOGI(TAG, "Decrypted payload length: %d", lenn);
-            ESP_LOGI(TAG, "Decrypted payload: %s", datadec);
-
+            if (debugmode) {
+                // datadec is not NUL-terminated, so it must not be passed to %s.
+                ESP_LOGI(TAG, "Decrypted payload length: %d", lenn);
+                ESP_LOG_BUFFER_HEXDUMP(TAG, datadec, lenn, ESP_LOG_INFO);
+            }
         } else {
             if (debugmode) ESP_LOGE(TAG, "Failed to decrypt payload %d", lenn);
             return 0;
@@ -630,7 +634,10 @@ int McCompact::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const
     int ret = mbedtls_md_hmac(
         md_info,                 // Use SHA256
         shared_secret,           // The key for the HMAC
-        PUB_KEY_SIZE,            // The length of the key
+        CIPHER_KEY_SIZE,         // The length of the key. Must match MACThenDecrypt,
+                                 // which verifies with CIPHER_KEY_SIZE; this used to
+                                 // key the HMAC with PUB_KEY_SIZE, so nothing this
+                                 // produced could ever be verified.
         dest + CIPHER_MAC_SIZE,  // The message to authenticate
         enc_len,                 // The length of the message
         dest                     // The destination for the 32-byte MAC output
@@ -651,12 +658,13 @@ int McCompact::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const
         return 0;  // Internal error
     }
     int ret = mbedtls_md_hmac(
-        md_info,         // Use SHA256
-        shared_secret,   // The HMAC key
-        16,              // Key length //todo maybe different for other things. needs to check!!
-        ciphertext,      // The data to authenticate
-        ciphertext_len,  // Length of the data
-        calculated_mac   // Output buffer for the calculated MAC
+        md_info,          // Use SHA256
+        shared_secret,    // The HMAC key
+        CIPHER_KEY_SIZE,  // Key length. Verified only for the group-channel path;
+                          // the direct-message path is still unproven.
+        ciphertext,       // The data to authenticate
+        ciphertext_len,   // Length of the data
+        calculated_mac    // Output buffer for the calculated MAC
     );
 
     if (ret != 0) {
@@ -700,7 +708,7 @@ void McCompact::sendNeighborDiscoveryRequest(uint8_t filter, std::vector<uint32_
     MCC_Header header;
     // size_t generate_header(McPacket_t* packet, uint8_t route_type,  uint8_t payload_type, std::vector<uint32_t> path, uint8_t path_bytenum = 1, uint32_t transport_code = 0) {
     header.generate_header(&packet, (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_DIRECT, (uint8_t)MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_CONTROL, path, 1, 0);
-    uint32_t tag = (uint32_t)random();
+    uint32_t tag = esp_random();
     packet.payload[packet.length++] = 0x80;  // control packet type: request for node data
     packet.payload[packet.length++] = filter;
     packet.payload[packet.length++] = (tag >> 24) & 0xFF;
