@@ -970,7 +970,7 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                 }
             }
             if (header.want_ack && is_send_enabled && !is_in_stealth_mode && header.dstnode == my_nodeinfo.node_id) {
-                // send_ack(header); //todo fix this
+                send_ack(header);
             }
         }
         pb_release(&meshtastic_Data_msg, &decodedtmp);
@@ -1089,7 +1089,11 @@ void MtCompact::send_ack(MCT_Header& header) {
     entry.header.hop_limit = send_hop_limit;
     entry.header.want_ack = 0;
     entry.header.via_mqtt = false;
-    entry.data.request_id = header.request_id;
+    // A routing ACK references the id of the packet being acknowledged. This
+    // used to copy header.request_id, which is the request_id field of the
+    // received Data payload and is 0 for an ordinary message, so the originator
+    // could never match the ACK to its pending packet.
+    entry.data.request_id = header.packet_id;
     entry.header.chan_hash = header.chan_hash;
     entry.encType = 1;
     entry.data.portnum = meshtastic_PortNum_ROUTING_APP;
