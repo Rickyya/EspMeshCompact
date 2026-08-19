@@ -200,6 +200,13 @@ class MtCompact {
         MtCompactFileIO::loadNodeDb(nodeinfo_db);
     }
 
+    void saveChannels() {
+        MtCompactFileIO::saveChannels(chan_mgr);
+    }
+    void loadChannels() {
+        MtCompactFileIO::loadChannels(chan_mgr);
+    }
+
     void savePrivKey() {
         MtCompactFileIO::savePrivateKey(my_nodeinfo);
     }

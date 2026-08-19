@@ -50,7 +50,12 @@ extern "C" void app_main(void) {
 
     mesh.setDebugMode(true);
     mesh.RadioInit(RadioType::SX1262, radio_pins, lora_config_mt);
-    mesh.chan_mgr.addDefaultChannels();
+    // Channels persist across reboots; seed the defaults only on first boot.
+    mesh.loadChannels();
+    if (mesh.chan_mgr.channels.empty()) {
+        mesh.chan_mgr.addDefaultChannels();
+        mesh.saveChannels();
+    }
 
     uint32_t node_id = nodeIdFromMac();
     std::string short_name = "MTL";

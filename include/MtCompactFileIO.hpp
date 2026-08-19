@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MtCompactNodeInfoDB.hpp"
+#include "MtCompactChanMgr.hpp"
 
 class MtCompactFileIO {
    public:
@@ -10,6 +11,12 @@ class MtCompactFileIO {
 
     // Load the nodedb
     static bool loadNodeDb(NodeInfoDB& db);
+
+    // Save the channel list
+    static bool saveChannels(MtCompatChanMgr& chan_mgr);
+
+    // Load the channel list
+    static bool loadChannels(MtCompatChanMgr& chan_mgr);
 
     // Save the private key
     static bool savePrivateKey(MCT_MyNodeInfo& my_nodeinfo);

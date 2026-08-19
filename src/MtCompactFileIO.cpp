@@ -73,6 +73,68 @@ bool MtCompactFileIO::loadNodeDb(NodeInfoDB& db) {
     return false;
 }
 
+bool MtCompactFileIO::saveChannels(MtCompatChanMgr& chan_mgr) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("meshtastic", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    err = nvs_set_u32(handle, "fileio_ver", FILEIO_VERSION);
+    if (err != ESP_OK) {
+        nvs_close(handle);
+        return false;
+    }
+
+    std::vector<uint8_t> buffer;
+    if (!chan_mgr.serialize(buffer)) {
+        nvs_close(handle);
+        return false;
+    }
+
+    err = nvs_set_blob(handle, "channels", buffer.data(), buffer.size());
+    if (err != ESP_OK) {
+        nvs_close(handle);
+        return false;
+    }
+
+    err = nvs_commit(handle);
+    nvs_close(handle);
+    return err == ESP_OK;
+}
+
+bool MtCompactFileIO::loadChannels(MtCompatChanMgr& chan_mgr) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("meshtastic", NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    uint32_t fileio_ver = 0;
+    err = nvs_get_u32(handle, "fileio_ver", &fileio_ver);
+    if (err != ESP_OK || fileio_ver != FILEIO_VERSION) {
+        nvs_close(handle);
+        ESP_LOGI("MtCompactFileIO", "NVS fileio_ver mismatch or not found.");
+        return false;
+    }
+
+    size_t required_size = 0;
+    err = nvs_get_blob(handle, "channels", nullptr, &required_size);
+    if (err != ESP_OK || required_size == 0) {
+        nvs_close(handle);
+        return false;
+    }
+
+    std::vector<uint8_t> buffer(required_size);
+    err = nvs_get_blob(handle, "channels", buffer.data(), &required_size);
+    nvs_close(handle);
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    return chan_mgr.deserialize(buffer);
+}
+
 bool MtCompactFileIO::savePrivateKey(MCT_MyNodeInfo& my_nodeinfo) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open("mtpriv", NVS_READWRITE, &handle);
