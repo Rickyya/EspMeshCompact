@@ -3,7 +3,6 @@
 #include <string>
 #include <inttypes.h>
 #include "esp_log.h"
-#include "AES.h"
 #include <RNG.h>
 #include <Crypto.h>
 #include <Curve25519.h>

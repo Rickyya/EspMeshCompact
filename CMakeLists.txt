@@ -54,46 +54,20 @@ set(meshtastic_srcs
     "meshtastic/xmodem.pb.cpp"
     )
 
-# Vendored crypto. Both of these are slated for replacement by
-# espressif/libsodium; see CHANGELOG.md.
+# Vendored rweather/arduinolibs Crypto, pruned to what is actually reachable:
+# Curve25519 for the Meshtastic PKI path, SHA256 for the shared-secret hash,
+# and RNG for key generation. BigNumberUtil/Hash/Cipher/ChaCha/NoiseSource are
+# their transitive dependencies. The AES classes went with src/aes-ccm.cpp.
 set(crypto_srcs
-    "lib/Crypto/AES128.cpp"
-    "lib/Crypto/AES192.cpp"
-    "lib/Crypto/AES256.cpp"
-    "lib/Crypto/AESCommon.cpp"
-    "lib/Crypto/AESEsp32.cpp"
-    "lib/Crypto/AuthenticatedCipher.cpp"
-    "lib/Crypto/BLAKE2b.cpp"
-    "lib/Crypto/BLAKE2s.cpp"
     "lib/Crypto/BigNumberUtil.cpp"
-    "lib/Crypto/BlockCipher.cpp"
-    "lib/Crypto/CTR.cpp"
     "lib/Crypto/ChaCha.cpp"
-    "lib/Crypto/ChaChaPoly.cpp"
     "lib/Crypto/Cipher.cpp"
     "lib/Crypto/Crypto.cpp"
     "lib/Crypto/Curve25519.cpp"
-    "lib/Crypto/EAX.cpp"
-    "lib/Crypto/Ed25519.cpp"
-    "lib/Crypto/GCM.cpp"
-    "lib/Crypto/GF128.cpp"
-    "lib/Crypto/GHASH.cpp"
-    "lib/Crypto/HKDF.cpp"
     "lib/Crypto/Hash.cpp"
-    "lib/Crypto/KeccakCore.cpp"
     "lib/Crypto/NoiseSource.cpp"
-    "lib/Crypto/OMAC.cpp"
-    "lib/Crypto/P521.cpp"
-    "lib/Crypto/Poly1305.cpp"
     "lib/Crypto/RNG.cpp"
-    "lib/Crypto/SHA224.cpp"
     "lib/Crypto/SHA256.cpp"
-    "lib/Crypto/SHA3.cpp"
-    "lib/Crypto/SHA384.cpp"
-    "lib/Crypto/SHA512.cpp"
-    "lib/Crypto/SHAKE.cpp"
-    "lib/Crypto/XOF.cpp"
-    "lib/Crypto/XTS.cpp"
     )
 
 set(ed25519_srcs
@@ -111,16 +85,16 @@ set(ed25519_srcs
 
 # REQUIRES vs PRIV_REQUIRES: anything reachable from a public header must be
 # public. include/EspHal.h pulls in driver/gpio.h, driver/spi_master.h and
-# esp_timer.h; include/MtCompact.hpp pulls in RadioLib.h and mbedtls/aes.h.
-# nvs_flash is used only by src/MtCompactFileIO.cpp, so it stays private.
-# freertos/esp_hw_support/soc/hal/log are common requirements and are implicit.
+# esp_timer.h; include/MtCompact.hpp pulls in RadioLib.h, mbedtls/aes.h and
+# mbedtls/ccm.h. nvs_flash is used only by src/MtCompactFileIO.cpp, so it stays
+# private. freertos/esp_hw_support/soc/hal/log are common requirements and are
+# implicit.
 #
 # INCLUDE_DIRS is a public interface -- every dependent gets these on its
 # include path. "." is required because the generated protobuf headers include
-# each other as "meshtastic/<name>.pb.h". "lib/Crypto" and "lib/ed25519" are
-# required because include/MtCompactHelpers.hpp includes "Curve25519.h" and
-# src/McCompactStructs.cpp includes "ed_25519.h". Both drop out once the
-# libsodium port lands.
+# each other as "meshtastic/<name>.pb.h". "lib/Crypto" is required because
+# include/MtCompactHelpers.hpp includes "Curve25519.h", "RNG.h" and "Crypto.h";
+# "lib/ed25519" because src/McCompactStructs.cpp includes "ed_25519.h".
 idf_component_register(
     SRCS ${mesh_srcs} ${nanopb_srcs} ${meshtastic_srcs} ${crypto_srcs} ${ed25519_srcs}
     INCLUDE_DIRS "." "include" "lib/Crypto" "lib/ed25519"

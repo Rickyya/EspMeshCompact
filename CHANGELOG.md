@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced the vendored `src/aes-ccm.cpp` (a copy of hostap's AES-CCM built on the
+  rweather `AESSmall256` software cipher) with mbedtls CCM. mbedtls was already a
+  dependency, and on the ESP32-S3 it routes through the AES accelerator.
+  The wire format is unchanged and was verified byte-for-byte: the old
+  implementation was checked against an independent AES-256-CCM reference
+  (iv_len 13, tag_len 8) and the new call sequence reproduces the previous
+  ciphertext and tag exactly on all test vectors, including the empty-plaintext
+  and exact-block-multiple cases.
+- Pruned `lib/Crypto/` from 37 to 9 source files. Only Curve25519 (Meshtastic PKI),
+  SHA256 (shared-secret hash) and RNG (key generation) are reachable, plus their
+  transitive dependencies. This is a maintenance change only -- the linker was
+  already discarding the unused objects, and both examples build to byte-identical
+  images before and after.
 - Restructured the repository into a valid ESP-IDF component. The component
   sources moved from `EspMeshCompact/` to the repository root, and the demo
   application moved from `main/` to `examples/mc_receiver/`, which now depends
