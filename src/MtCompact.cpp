@@ -851,8 +851,17 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                 if (debugmode) {
                     ESP_LOGI(TAG, "Received an admin packet");
                 }
-                // payload: protobuf AdminMessage
-                // drop it, not interested in admin messages
+                // payload: protobuf AdminMessage. Nothing here acts on admin
+                // messages; they are only forwarded to the application.
+                if (onNativeAdmin) {
+                    meshtastic_AdminMessage admin_msg = {};
+                    if (pb_decode_from_bytes(decodedtmp.payload.bytes, decodedtmp.payload.size, &meshtastic_AdminMessage_msg, &admin_msg)) {
+                        onNativeAdmin(header, admin_msg);
+                    } else if (debugmode) {
+                        ESP_LOGE(TAG, "Failed to decode AdminMessage");
+                    }
+                    pb_release(&meshtastic_AdminMessage_msg, &admin_msg);
+                }
             } else if (decodedtmp.portnum == 7) {
                 if (debugmode) {
                     ESP_LOGI(TAG, "Received a compressed text message packet");
@@ -927,7 +936,17 @@ int16_t MtCompact::processPacket(uint8_t* data, int len, MtCompact* mshcomp) {
                 if (debugmode) {
                     ESP_LOGI(TAG, "Received a STORE_FORWARD_APP  packet");
                 }
-                // payload: ?
+                // payload: protobuf StoreAndForward. No store-and-forward server
+                // is implemented here; the message is only forwarded on.
+                if (onNativeStoreForward) {
+                    meshtastic_StoreAndForward sf_msg = {};
+                    if (pb_decode_from_bytes(decodedtmp.payload.bytes, decodedtmp.payload.size, &meshtastic_StoreAndForward_msg, &sf_msg)) {
+                        onNativeStoreForward(header, sf_msg);
+                    } else if (debugmode) {
+                        ESP_LOGE(TAG, "Failed to decode StoreAndForward");
+                    }
+                    pb_release(&meshtastic_StoreAndForward_msg, &sf_msg);
+                }
             } else if (decodedtmp.portnum == 66) {
                 if (debugmode) {
                     ESP_LOGI(TAG, "Received a RANGE_TEST_APP  packet");

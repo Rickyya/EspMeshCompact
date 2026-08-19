@@ -13,6 +13,8 @@
 #include "mbedtls/ccm.h"
 #include <string>
 #include "meshtastic/mesh.pb.h"
+#include "meshtastic/admin.pb.h"
+#include "meshtastic/storeforward.pb.h"
 #include "MtCompactStructs.hpp"
 #include <mutex>
 #include <condition_variable>
@@ -62,6 +64,11 @@ class MtCompact {
     using OnNativeTelemetryLocalStatsCallback = void (*)(MCT_Header& header, meshtastic_LocalStats& telemetry);
     using OnNativeTelemetryHealthCallback = void (*)(MCT_Header& header, meshtastic_HealthMetrics& telemetry);
     using OnNativeTelemetryHostCallback = void (*)(MCT_Header& header, meshtastic_HostMetrics& telemetry);
+    // Neither has a compact mirror, and neither is acted on by this component:
+    // it implements no admin operations and no store-and-forward server. The
+    // decoded message is handed over so an application can implement either.
+    using OnNativeAdminCallback = void (*)(MCT_Header& header, meshtastic_AdminMessage& admin);
+    using OnNativeStoreForwardCallback = void (*)(MCT_Header& header, meshtastic_StoreAndForward& sf);
 
     void setOnWaypointMessage(OnWaypointMessageCallback cb) { onWaypointMessage = cb; }
     void setOnNodeInfoMessage(OnNodeInfoCallback cb) { onNodeInfo = cb; }
@@ -82,6 +89,8 @@ class MtCompact {
     void setOnNativeTelemetryLocalStats(OnNativeTelemetryLocalStatsCallback cb) { onNativeTelemetryLocalStats = cb; }
     void setOnNativeTelemetryHealth(OnNativeTelemetryHealthCallback cb) { onNativeTelemetryHealth = cb; }
     void setOnNativeTelemetryHost(OnNativeTelemetryHostCallback cb) { onNativeTelemetryHost = cb; }
+    void setOnNativeAdmin(OnNativeAdminCallback cb) { onNativeAdmin = cb; }
+    void setOnNativeStoreForward(OnNativeStoreForwardCallback cb) { onNativeStoreForward = cb; }
 
     // To enable or disable this module's logging to serial
     void setDebugMode(bool enabled) {
@@ -317,6 +326,8 @@ class MtCompact {
     OnNativeTelemetryLocalStatsCallback onNativeTelemetryLocalStats = nullptr;
     OnNativeTelemetryHealthCallback onNativeTelemetryHealth = nullptr;
     OnNativeTelemetryHostCallback onNativeTelemetryHost = nullptr;
+    OnNativeAdminCallback onNativeAdmin = nullptr;
+    OnNativeStoreForwardCallback onNativeStoreForward = nullptr;
     OnPositionMessageCallback onPositionMessage = nullptr;
     OnNodeInfoCallback onNodeInfo = nullptr;
     OnWaypointMessageCallback onWaypointMessage = nullptr;
