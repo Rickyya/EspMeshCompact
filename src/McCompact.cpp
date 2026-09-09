@@ -438,17 +438,29 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     }
 
     if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_PATH || plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_REQ || plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_RESPONSE || plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_TXT_MSG) {
+        if (pos + 2 > (size_t)len) return 0;
         uint8_t dst_hash = *((uint8_t*)&data[pos++]);
         uint8_t src_hash = *((uint8_t*)&data[pos++]);
+
+        // Hashes are the first byte of the public key (MeshCore Identity::copyHashTo).
+        if (dst_hash != mshcomp->my_nodeinfo.pubkey[0]) {
+            if (debugmode) ESP_LOGI(TAG, "Datagram for %02x, not us", dst_hash);
+            return 0;
+        }
+
         uint8_t* macanddata = &data[pos];
         uint8_t datadec[MAX_PACKET_PAYLOAD];
-        // todo foreach peer list with that dst hash, and check for secret data if i can decrypt with it.
-        uint8_t secret[PUB_KEY_SIZE] = {0};  // 32 bytes
         int lenn = 0;
-        for (const auto& peer : mshcomp->nodeinfo_db) {
-            memcpy(secret, peer.pubkey, PUB_KEY_SIZE);
-            lenn = MACThenDecrypt(secret, datadec, sizeof(datadec), macanddata, len - pos);
+        MCC_Nodeinfo* sender = nullptr;
+        for (auto& peer : mshcomp->nodeinfo_db) {
+            if (peer.pubkey[0] != src_hash) continue;  // cheap reject before the ECDH
+            if (!peer.has_shared_secret) {
+                mshcomp->my_nodeinfo.calcSharedSecret(peer.shared_secret, peer.pubkey);
+                peer.has_shared_secret = true;
+            }
+            lenn = MACThenDecrypt(peer.shared_secret, datadec, sizeof(datadec), macanddata, len - pos);
             if (lenn > 0) {
+                sender = &peer;
                 break;  // Exit the loop if decryption is successful
             }
         }
@@ -460,7 +472,7 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
                 ESP_LOG_BUFFER_HEXDUMP(TAG, datadec, lenn, ESP_LOG_INFO);
             }
         } else {
-            if (debugmode) ESP_LOGE(TAG, "Failed to decrypt payload %d", lenn);
+            if (debugmode) ESP_LOGE(TAG, "No known contact with hash %02x could decrypt", src_hash);
             return 0;
         }
         pos = 0;  // inner pos
@@ -484,34 +496,25 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             return 0;
         }
         if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_TXT_MSG) {
-            // timestamp 4 byte
-            uint32_t timestamp = *((uint32_t*)&datadec[pos]);
+            if (lenn < 5) {
+                if (debugmode) ESP_LOGE(TAG, "TXT_MSG too short: %d", lenn);
+                return 0;
+            }
+            uint32_t timestamp;
+            memcpy(&timestamp, &datadec[pos], 4);
             pos += 4;
             uint8_t msg_flags = datadec[pos++];
-            uint8_t msg_attempts = msg_flags & 0x03;
-            msg_flags = msg_flags >> 2;
-            if (msg_flags == 2) {
-                // signed_plaintext. remove the first 4 bytes: first four bytes is sender pubkey prefix, followed by plain text message
+            uint8_t txt_type = msg_flags >> 2;
+            if (txt_type == MCC_TXT_TYPE_SIGNED_PLAIN) {
+                // first four bytes are the sender pubkey prefix, then the text
+                if (lenn < (int)pos + 4) return 0;
                 pos += 4;
             }
-            uint16_t msg_len = len - pos;
-            std::string msg = std::string((const char*)&datadec[pos], msg_len);
-            if (debugmode) ESP_LOGI(TAG, "TXT_MSG packet: timestamp=%lu, flags=0x%02x, msg_len=%u, msg=%s", timestamp, msg_flags, msg_len, msg.c_str());
+            // lenn is the padded block length, so bound the scan and drop the padding.
+            size_t msg_len = strnlen((const char*)&datadec[pos], (size_t)lenn - pos);
+            std::string msg((const char*)&datadec[pos], msg_len);
+            if (debugmode) ESP_LOGI(TAG, "TXT_MSG from '%s': timestamp=%lu, type=%u, msg=%s", sender->name.c_str(), timestamp, txt_type, msg.c_str());
             return 1;
-            /*
-            Received packet of length 38: 09 00 48 AC A0 13 C8 09 C2 36 BF F6 CC 78 B2 35 18 37 75 7D FC 9B 61 F2 0E 41 15 20 4B 52 C0 B2 55 DF 8A 8B E7 65
-    I (86779) McCompact: Received packet: route_type=1, payload_type=2, addr_format=0, transport_codes=0x00000000, path_length=0
-    I (86799) McCompact: Path:
-    I (86799) McCompact: TXT_MSG packet: timestamp=918686152, flags=0xbf, msg_len=27, msg=��x�57u}��a�A KR��Uߊ��e
-    Received packet of length 38: 09 00 48 AC 0D 5B 7D C7 81 BF CF 6E 4A 32 00 B8 6A 3E DE E9 F5 B2 61 F2 0E 41 15 20 4B 52 C0 B2 55 DF 8A 8B E7 65
-    I (96189) McCompact: Received packet: route_type=1, payload_type=2, addr_format=0, transport_codes=0x00000000, path_length=0
-    I (96209) McCompact: Path:
-    I (96209) McCompact: TXT_MSG packet: timestamp=3212953469, flags=0xcf, msg_len=27, msg=nJ2
-    Received packet of length 38: 09 00 48 AC EC D0 0E 15 8C 29 CC 1F AE C7 C8 58 83 A3 CF 5E 39 0F 61 F2 0E 41 15 20 4B 52 C0 B2 55 DF 8A 8B E7 65
-    I (105999) McCompact: Received packet: route_type=1, payload_type=2, addr_format=0, transport_codes=0x00000000, path_length=0
-    I (106019) McCompact: Path:
-    I (106019) McCompact: TXT_MSG packet: timestamp=697046286, flags=0xcc, msg_len=27, msg=���X���^9a�A KR��Uߊ��e
-    */
         }
     }
 

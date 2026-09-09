@@ -213,6 +213,9 @@ class MCC_Nodeinfo {
             latitude_i = other.latitude_i;
             longitude_i = other.longitude_i;
             name = other.name;
+            // The cache belongs to whoever previously occupied this slot; a slot
+            // being reused for a different node must not inherit their secret.
+            has_shared_secret = false;
         }
         return *this;
     }
@@ -314,6 +317,11 @@ class MCC_Nodeinfo {
     int32_t longitude_i;  // optional
     std::string name;
     bool has_location = false;
+
+    // ECDH result with our own identity. Cached because it costs ~10ms and is
+    // otherwise recomputed for every packet. Derived, so never persisted.
+    uint8_t shared_secret[32] = {};
+    bool has_shared_secret = false;
 };
 
 class MCC_MyNodeInfo : public MCC_Nodeinfo {
