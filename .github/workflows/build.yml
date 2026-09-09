@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  examples:
+    name: ${{ matrix.example }} (esp32s3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [mc_receiver, mt_listener]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds the component through each example's override_path dependency,
+      # so a source that is missing from CMakeLists.txt fails here rather than
+      # silently shipping. mt_listener is the only thing that links MtCompact.
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: examples/${{ matrix.example }}
+
+  manifest:
+    name: component manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install idf-component-manager
+      # Catches a manifest that would publish the examples' build output, an
+      # app, or a project() CMakeLists as part of the component.
+      - name: Pack
+        run: compote component pack --name espmeshcompact --version 0.0.0-ci
+      - name: Check the archive contains no app or build output
+        run: |
+          set -eu
+          tar tzf dist/espmeshcompact_0.0.0-ci.tgz > files.txt
+          sed 's|^\./||' files.txt
+          ! grep -qE '(^|/)(build|managed_components)/' files.txt
+          ! grep -q 'sdkconfig$' files.txt
+          for required in CMakeLists.txt idf_component.yml; do
+            grep -qx "./$required" files.txt
+          done
+          ! tar xzOf dist/espmeshcompact_0.0.0-ci.tgz ./CMakeLists.txt | grep -q '^project('

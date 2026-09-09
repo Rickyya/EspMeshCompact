@@ -1,0 +1,18 @@
+menu "EspMeshCompact"
+
+    config MTCOMPACT_TEXT_COMPRESSION
+        bool "Enable Unishox2 compression for outgoing text"
+        default n
+        help
+            Allows MtCompact::setTextCompression(true) to send
+            TEXT_MESSAGE_COMPRESSED_APP when the compressed form is shorter.
+
+            This is off by default because the Unishox2 compressor costs about
+            4.2 kB of flash, and unlike the decompressor -- which is always
+            built, so incoming compressed text is always understood -- nothing
+            needs it unless this node chooses to compress what it sends.
+
+            Turning this on without also calling setTextCompression(true)
+            changes nothing except the binary size.
+
+endmenu

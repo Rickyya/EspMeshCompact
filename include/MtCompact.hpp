@@ -1,0 +1,358 @@
+#ifndef MESHTASTIC_COMPACT_H
+#define MESHTASTIC_COMPACT_H
+
+#include <stdio.h>
+#include <inttypes.h>
+#include <ctype.h>
+#include <string.h>
+#include "pb.h"
+#include "RadioLib.h"
+#include "EspHal.h"
+#include "esp_random.h"
+#include "esp_log.h"
+#include "mbedtls/aes.h"
+#include "mbedtls/ccm.h"
+#include <string>
+#include "meshtastic/mesh.pb.h"
+#include "meshtastic/admin.pb.h"
+#include "meshtastic/storeforward.pb.h"
+#include "MtCompactStructs.hpp"
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <deque>
+#include "MtCompactNodeInfoDB.hpp"
+#include "MtCompactRouter.hpp"
+#include "MtCompactOutQueue.hpp"
+#include "MtCompactFileIO.hpp"
+#include "MtCompactHelpers.hpp"
+#include "MtCompactChanMgr.hpp"
+#include "MtCompactWaypointDB.hpp"
+
+// Curve25519 (PKI) packets carry an 8-byte CCM tag and a 4-byte extra nonce
+// after the ciphertext, so an encrypted payload is MT_PKI_OVERHEAD bytes
+// longer than its plaintext.
+#define MT_PKI_TAG_SIZE 8
+#define MT_PKI_EXTRA_NONCE_SIZE 4
+#define MT_PKI_OVERHEAD (MT_PKI_TAG_SIZE + MT_PKI_EXTRA_NONCE_SIZE)
+
+class MtCompact {
+   public:
+    MtCompact();
+    ~MtCompact();
+    bool RadioInit(RadioType radio_type, Radio_PINS& radio_pins, LoraConfig& lora_config);  // Initializes the radio with the given configuration and pins
+
+    // callbacks
+    using OnMessageCallback = void (*)(MCT_Header& header, MCT_TextMessage& message);
+    using OnPositionMessageCallback = void (*)(MCT_Header& header, MCT_Position& position, bool needReply);
+    using OnNodeInfoCallback = void (*)(MCT_Header& header, MCT_NodeInfo& nodeinfo, bool needReply, bool newNode);
+    using OnWaypointMessageCallback = void (*)(MCT_Header& header, MCT_Waypoint& waypoint);
+    using OnTelemetryDeviceCallback = void (*)(MCT_Header& header, MCT_Telemetry_Device& telemetry);
+    using OnTelemetryEnvironmentCallback = void (*)(MCT_Header& header, MCT_Telemetry_Environment& telemetry);
+    using OnTracerouteCallback = void (*)(MCT_Header& header, MCT_RouteDiscovery& route, bool for_me, bool is_reply, bool need_reply);
+    using OnRoutingCallback = void (*)(MCT_Header& header, MCT_Routing& routing);
+    using OnRaw = void (*)(const uint8_t* data, size_t len);
+    using OnNativePositionMessageCallback = void (*)(MCT_Header& header, meshtastic_Position& position, bool needReply);
+    using OnNativeNodeInfoCallback = void (*)(MCT_Header& header, meshtastic_User& nodeinfo, bool needReply, bool newNode);
+    using OnNativeWaypointMessageCallback = void (*)(MCT_Header& header, meshtastic_Waypoint& waypoint);
+    using OnNativeTelemetryDeviceCallback = void (*)(MCT_Header& header, meshtastic_DeviceMetrics& telemetry);
+    using OnNativeTelemetryEnvironmentCallback = void (*)(MCT_Header& header, meshtastic_EnvironmentMetrics& telemetry);
+    // These four variants have no compact MCT_ mirror: between them they carry
+    // some fifty fields, and mirroring all of them would be more copy code than
+    // the data is worth here. The decoded protobuf is handed over directly.
+    using OnNativeTelemetryAirQualityCallback = void (*)(MCT_Header& header, meshtastic_AirQualityMetrics& telemetry);
+    using OnNativeTelemetryPowerCallback = void (*)(MCT_Header& header, meshtastic_PowerMetrics& telemetry);
+    using OnNativeTelemetryLocalStatsCallback = void (*)(MCT_Header& header, meshtastic_LocalStats& telemetry);
+    using OnNativeTelemetryHealthCallback = void (*)(MCT_Header& header, meshtastic_HealthMetrics& telemetry);
+    using OnNativeTelemetryHostCallback = void (*)(MCT_Header& header, meshtastic_HostMetrics& telemetry);
+    // Neither has a compact mirror, and neither is acted on by this component:
+    // it implements no admin operations and no store-and-forward server. The
+    // decoded message is handed over so an application can implement either.
+    using OnNativeAdminCallback = void (*)(MCT_Header& header, meshtastic_AdminMessage& admin);
+    using OnNativeStoreForwardCallback = void (*)(MCT_Header& header, meshtastic_StoreAndForward& sf);
+
+    void setOnWaypointMessage(OnWaypointMessageCallback cb) { onWaypointMessage = cb; }
+    void setOnNodeInfoMessage(OnNodeInfoCallback cb) { onNodeInfo = cb; }
+    void setOnPositionMessage(OnPositionMessageCallback cb) { onPositionMessage = cb; }
+    void setOnMessage(OnMessageCallback cb) { onMessage = cb; }
+    void setOnTelemetryDevice(OnTelemetryDeviceCallback cb) { onTelemetryDevice = cb; }
+    void setOnTelemetryEnvironment(OnTelemetryEnvironmentCallback cb) { onTelemetryEnvironment = cb; }
+    void setOnTraceroute(OnTracerouteCallback cb) { onTraceroute = cb; }
+    void setOnRouting(OnRoutingCallback cb) { onRouting = cb; }  // ACK/NAK for a packet we sent
+    void setOnRaw(OnRaw cb) { onRaw = cb; }
+    void setOnNativePositionMessage(OnNativePositionMessageCallback cb) { onNativePositionMessage = cb; }
+    void setOnNativeNodeInfo(OnNativeNodeInfoCallback cb) { onNativeNodeInfo = cb; }
+    void setOnNativeWaypointMessage(OnNativeWaypointMessageCallback cb) { onNativeWaypointMessage = cb; }
+    void setOnNativeTelemetryDevice(OnNativeTelemetryDeviceCallback cb) { onNativeTelemetryDevice = cb; }
+    void setOnNativeTelemetryEnvironment(OnNativeTelemetryEnvironmentCallback cb) { onNativeTelemetryEnvironment = cb; }
+    void setOnNativeTelemetryAirQuality(OnNativeTelemetryAirQualityCallback cb) { onNativeTelemetryAirQuality = cb; }
+    void setOnNativeTelemetryPower(OnNativeTelemetryPowerCallback cb) { onNativeTelemetryPower = cb; }
+    void setOnNativeTelemetryLocalStats(OnNativeTelemetryLocalStatsCallback cb) { onNativeTelemetryLocalStats = cb; }
+    void setOnNativeTelemetryHealth(OnNativeTelemetryHealthCallback cb) { onNativeTelemetryHealth = cb; }
+    void setOnNativeTelemetryHost(OnNativeTelemetryHostCallback cb) { onNativeTelemetryHost = cb; }
+    void setOnNativeAdmin(OnNativeAdminCallback cb) { onNativeAdmin = cb; }
+    void setOnNativeStoreForward(OnNativeStoreForwardCallback cb) { onNativeStoreForward = cb; }
+
+    // To enable or disable this module's logging to serial
+    void setDebugMode(bool enabled) {
+        debugmode = enabled;
+    }
+
+    /**
+     * @brief Get the Last Signal Strengh Data
+     *
+     * @param rssi_out RSSI value
+     * @param snr_out SNR value
+     */
+    void getLastSignalData(float& rssi_out, float& snr_out) {
+        rssi_out = rssi;
+        snr_out = snr;
+    }
+
+    /**
+     * @brief Set the Send Enabled
+     *
+     * @param enabled If set to false, no packets will be sent, but we still receive them.
+     */
+    void setSendEnabled(bool enabled) {
+        is_send_enabled = enabled;
+    }
+    void setAutoFullNode(bool enabled) { is_auto_full_node = enabled; }  // if true, sends ack, traceroute reply, and position reply automatically
+
+    /**
+     * @brief Set the Send Hop Limit object
+     *
+     * @param limit
+     * @return true Valid hop limit set
+     * @return false Invalid hop limit, must be between 1 and 7
+     */
+    bool setSendHopLimit(uint8_t limit) {
+        if (limit > 0 && limit <= 7) {
+            send_hop_limit = limit;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @brief Set the Stealth Mode
+     *
+     * @param stealth If set to true, we don't respond to traceroute even in auto full node mode! harder to find us. We even don't send ack.
+     */
+    void setStealthMode(bool stealth) {
+        is_in_stealth_mode = stealth;
+    }
+
+    /**
+     * @brief Set the My Names object
+     *
+     * @param short_name
+     * @param long_name
+     */
+    void setMyNames(const char* short_name, const char* long_name);
+    MCT_MyNodeInfo* getMyNodeInfo() {
+        return &my_nodeinfo;
+    }
+
+    void setOkToMqtt(bool ok) { ok_to_mqtt = ok; }  // if true, sets the flag in the header, the messages can sent to mqtt broker
+
+    /**
+     * @brief Compress outgoing plain text with Unishox2 when it saves space.
+     *
+     * Sends TEXT_MESSAGE_COMPRESSED_APP instead of TEXT_MESSAGE_APP whenever the
+     * compressed form is actually shorter, which is what the Meshtastic firmware
+     * itself does. Receiving firmware decompresses it and hands the application
+     * back a normal text message.
+     *
+     * Off by default: this changes what goes on air, and portnum 7 sees little
+     * real-world traffic, so it is opt-in rather than a silent behaviour change.
+     *
+     * Requires CONFIG_MTCOMPACT_TEXT_COMPRESSION at build time as well. The
+     * compressor costs about 4.2 kB of flash, so it is not linked unless asked
+     * for; without it this setter has no effect. Receiving compressed text
+     * never needs the option.
+     */
+    void setTextCompression(bool enabled) {
+#if !defined(CONFIG_MTCOMPACT_TEXT_COMPRESSION)
+        if (enabled) {
+            ESP_LOGW("MtCompact", "setTextCompression(true) ignored: rebuild with CONFIG_MTCOMPACT_TEXT_COMPRESSION");
+        }
+#endif
+        compress_text = enabled;
+    }
+
+    // packet senders
+    /**
+     * @brief Send node information
+     *
+     * @param nodeinfo The nodeinfo to send out
+     * @param dstnode Destination node ID. 0xffffffff = broadcast
+     * @param exchange Whether to exchange node information (i.e., request a reply)
+     */
+    void sendNodeInfo(MCT_NodeInfo& nodeinfo, uint32_t dstnode = 0xffffffff, bool exchange = false, uint16_t chan = 256);
+    void sendMyNodeInfo(uint32_t dstnode = 0xffffffff, bool exchange = false, uint16_t chan = 256) {
+        sendNodeInfo(my_nodeinfo, dstnode, exchange, chan);
+    }
+    /**
+     * @brief Send a text message
+     *
+     * @param text What to send. Length is limitted!
+     * @param dstnode Destination node ID. 0xffffffff = broadcast
+     * @param chan Channel's hash we want to send to. 0 = private msg. LongFast = 8 for example.
+     * @param type Message type (MCT_MESSAGE_TYPE)
+     * @param sender_node_id Sender node ID. Who am i. 0 = mynodeid
+     * @param replyid Reply ID. The message id we are replying to
+     * @param emoji Is it considered an emoji? needs replyid
+     * @param encryption Encryption type (0 = auto, 1 = AES, 2 = Curve25519
+     */
+    void sendTextMessage(const std::string& text, uint32_t dstnode = 0xffffffff, uint16_t chan = 256, MCT_MESSAGE_TYPE type = MCT_MESSAGE_TYPE_TEXT, uint32_t sender_node_id = 0, uint32_t replyid = 0, bool emoji = false, uint8_t encryption = 0);
+    void sendPositionMessage(MCT_Position& position, uint32_t dstnode = 0xffffffff, uint16_t chan = 256, uint32_t sender_node_id = 0);
+    void sendMyPosition(uint32_t dstnode = 0xffffffff, uint16_t chan = 256) {
+        sendPositionMessage(my_position, dstnode, chan);
+    }
+    void sendRequestPositionInfo(uint32_t dest_node_id, uint16_t chan = 256, uint32_t sender_node_id = 0);
+    void sendWaypointMessage(MCT_Waypoint& waypoint, uint32_t dstnode = 0xffffffff, uint16_t chan = 256, uint32_t sender_node_id = 0);
+    void sendTelemetryDevice(MCT_Telemetry_Device& telemetry, uint32_t dstnode = 0xffffffff, uint16_t chan = 256, uint32_t sender_node_id = 0);
+    void sendTelemetryEnvironment(MCT_Telemetry_Environment& telemetry, uint32_t dstnode = 0xffffffff, uint16_t chan = 256, uint32_t sender_node_id = 0);
+    void sendTracerouteReply(MCT_Header& header, MCT_RouteDiscovery& route_discovery);
+    void sendTraceroute(uint32_t dest_node_id, uint16_t chan = 256, uint32_t sender_node_id = 0);
+
+    void setPrimaryChanByHash(uint8_t chan_hash) { pri_chan_hash = chan_hash; }  // set what is the default channel. //todo replace with chanmgr function!
+
+    void setFilterAllOutgoingMessages(bool filter) { filter_all_outgoing_messages = filter; }  // if true, we add all outgoing packages to the filter, so no alert on receive it back
+
+    // Radio settings on the fly
+    bool setRadioFrequency(float freq);
+    bool setRadioSpreadingFactor(uint8_t sf);
+    bool setRadioBandwidth(uint32_t bw);
+    bool setRadioCodingRate(uint8_t cr);
+    bool setRadioPower(int8_t power);
+
+    void saveNodeDb() {
+        MtCompactFileIO::saveNodeDb(nodeinfo_db);
+    }
+    void loadNodeDb() {
+        MtCompactFileIO::loadNodeDb(nodeinfo_db);
+    }
+
+    void saveChannels() {
+        MtCompactFileIO::saveChannels(chan_mgr);
+    }
+    void loadChannels() {
+        MtCompactFileIO::loadChannels(chan_mgr);
+    }
+
+    void savePrivKey() {
+        MtCompactFileIO::savePrivateKey(my_nodeinfo);
+    }
+    void loadPrivKey() {
+        if (MtCompactFileIO::loadPrivateKey(my_nodeinfo)) {
+            MtCompactHelpers::RegenerateOrGeneratePrivateKey(my_nodeinfo);
+        } else {
+            MtCompactHelpers::GeneratePrivateKey(my_nodeinfo);
+            MtCompactFileIO::savePrivateKey(my_nodeinfo);
+        }
+    }
+
+    void printKeysHex();  // prints the private and public keys in hex format for debugging
+
+    NodeInfoDB nodeinfo_db;    // NodeInfo database.
+    MtCompactRouter router;    // Router for message deduplication. Set MyId if you changed that. Also you can disable exclude self option
+    MCT_Position my_position;  // My position, used for auto replies (when enabled) on position requests. Or when you call sendMyPosition()
+    MtCompatChanMgr chan_mgr;  // Channel manager for handling multiple channels
+    WaypointDB waypoint_db;    // Received waypoints, keyed by waypoint id
+   private:
+    RadioType radio_type;
+    bool radioListen();    // inits the listening thread for the radio
+    bool radioSendInit();  // inits the sending thread for the radio. consumes the out_queue
+    // handlers
+    void intOnMessage(MCT_Header& header, MCT_TextMessage& message);                                // Called when got any text based messages
+    void intOnPositionMessage(MCT_Header& header, meshtastic_Position& position, bool want_reply);  // Called on position messages
+    void intOnNodeInfo(MCT_Header& header, meshtastic_User& user_msg, bool want_reply);             // Called on node info messages
+    void intOnWaypointMessage(MCT_Header& header, meshtastic_Waypoint& waypoint_msg);               // Called on waypoint messages
+    void intOnTelemetryDevice(MCT_Header& header, _meshtastic_Telemetry& telemetry);                // Called on telemetry device messages
+    void intOnTelemetryEnvironment(MCT_Header& header, _meshtastic_Telemetry& telemetry_msg);       // Called on telemetry environment messages
+    void intOnTraceroute(MCT_Header& header, meshtastic_RouteDiscovery& route_discovery_msg);       // Called on traceroute messages
+    void intOnRouting(MCT_Header& header, meshtastic_Routing& routing_msg);                         // Called on routing (ACK/NAK) messages
+
+    // crypto
+    bool encryptCurve25519(uint32_t toNode, uint32_t fromNode, uint8_t* remotePublic, uint64_t packetNum, size_t numBytes, const uint8_t* bytes, uint8_t* bytesOut);
+    bool decryptCurve25519(uint32_t fromNode, uint8_t* remotePublic, uint64_t packetNum, size_t numBytes, const uint8_t* bytes, uint8_t* bytesOut);
+    bool setDHPublicKey(uint8_t* pubKey);
+    void hash(uint8_t* bytes, size_t numBytes);
+    void initNonce(uint32_t fromNode, uint64_t packetId, uint32_t extraNonce);
+
+    // mesh network minimum functionality
+
+    void send_ack(MCT_Header& header);  // sends an ack packet to the source node based on the header
+
+    // decoding
+    int16_t processPacket(uint8_t* data, int len, MtCompact* mshcomp);  // Process the packet, decode it, and call the appropriate handler
+
+    int16_t try_decode_root_packet(const uint8_t* srcbuf, size_t srcbufsize, const pb_msgdesc_t* fields, void* dest_struct, size_t dest_struct_size, MCT_Header& header);                // the simple packet decoder for any type of encrypted messages.
+    bool pb_decode_from_bytes(const uint8_t* srcbuf, size_t srcbufsize, const pb_msgdesc_t* fields, void* dest_struct);                                                                  // decode the protobuf message from bytes
+    size_t pb_encode_to_bytes(uint8_t* destbuf, size_t destbufsize, const pb_msgdesc_t* fields, const void* src_struct);                                                                 // encode the protobuf message to bytes
+    static void task_listen(void* pvParameters);                                                                                                                                         // Task for listening to the radio and processing incoming packets
+    static void task_send(void* pvParameters);                                                                                                                                           // Task for sending packets from the out_queue
+    bool aes_decrypt_meshtastic_payload(const uint8_t* key, uint16_t keySize, uint32_t packet_id, uint32_t from_node, const uint8_t* encrypted_in, uint8_t* decrypted_out, size_t len);  // decrypts the meshtastic payload using AES
+    uint8_t getLastByteOfNodeNum(uint32_t num);
+
+    float rssi, snr;                  // store last signal data
+    bool is_send_enabled = true;      // global sending enabled flag. if false, noone can send anything
+    uint8_t send_hop_limit = 7;       // default hop limit for sending packets
+    bool is_auto_full_node = true;    // if true, we automatically send ack, traceroute reply, and position reply when needed
+    bool is_in_stealth_mode = false;  // if true, we don't respond to traceroute even in auto full node mode! harder to find us. We even don't send ack.
+
+    bool ok_to_mqtt = true;  // set or don't set the flag.
+    bool compress_text = false;  // see setTextCompression()
+
+    bool filter_all_outgoing_messages = false;  // if true, we will drop heard back packages.
+
+    MCT_MyNodeInfo my_nodeinfo;  // My node info. Used in many places. Set it carefully.
+
+    EspHal* hal;           // = new EspHal(9, 11, 10);
+    PhysicalLayer* radio;  // SX1262 radio = new Module(hal, 8, 14, 12, 13);
+
+    const uint8_t default_l1_key[16] =
+        {0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
+         0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01};  // default aes128 key for L1 encryption
+
+    uint8_t pri_chan_hash = 8;  // for longfast
+
+    uint8_t shared_key[32] = {0};
+    uint8_t nonce[16] = {0};
+
+    mbedtls_aes_context aes_ctx;
+    mbedtls_ccm_context ccm_ctx;  // PKI (Curve25519) AES-256-CCM, keyed per packet
+    mutable std::mutex mtx_radio;
+    bool need_run = true;  // thread exit flag
+
+    bool debugmode = false;  // if true, enables debug logging
+
+    MtCompactOutQueue out_queue;  // Outgoing queue for packets to be sent.
+
+    // Callback function pointers
+    OnMessageCallback onMessage = nullptr;  // Function pointer for onMessage callback
+    OnRoutingCallback onRouting = nullptr;  // Function pointer for onRouting callback
+    OnNativeTelemetryAirQualityCallback onNativeTelemetryAirQuality = nullptr;
+    OnNativeTelemetryPowerCallback onNativeTelemetryPower = nullptr;
+    OnNativeTelemetryLocalStatsCallback onNativeTelemetryLocalStats = nullptr;
+    OnNativeTelemetryHealthCallback onNativeTelemetryHealth = nullptr;
+    OnNativeTelemetryHostCallback onNativeTelemetryHost = nullptr;
+    OnNativeAdminCallback onNativeAdmin = nullptr;
+    OnNativeStoreForwardCallback onNativeStoreForward = nullptr;
+    OnPositionMessageCallback onPositionMessage = nullptr;
+    OnNodeInfoCallback onNodeInfo = nullptr;
+    OnWaypointMessageCallback onWaypointMessage = nullptr;
+    OnTelemetryDeviceCallback onTelemetryDevice = nullptr;
+    OnTelemetryEnvironmentCallback onTelemetryEnvironment = nullptr;
+    OnTracerouteCallback onTraceroute = nullptr;
+    OnRaw onRaw = nullptr;
+    OnNativePositionMessageCallback onNativePositionMessage = nullptr;
+    OnNativeNodeInfoCallback onNativeNodeInfo = nullptr;
+    OnNativeWaypointMessageCallback onNativeWaypointMessage = nullptr;
+    OnNativeTelemetryDeviceCallback onNativeTelemetryDevice = nullptr;
+    OnNativeTelemetryEnvironmentCallback onNativeTelemetryEnvironment = nullptr;
+};
+
+#endif  // MESHTASTIC_COMPACT_H
