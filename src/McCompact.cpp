@@ -435,6 +435,27 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
         return 0;
     }
 
+    // Extend the mesh, if asked to. The seen-table above is what stops this
+    // becoming a broadcast storm, so it must run first.
+    MCC_ROUTE_TYPE route = header.get_route_type();
+    bool is_flood = (route == MCC_ROUTE_TYPE::ROUTE_TYPE_FLOOD || route == MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_FLOOD);
+    bool may_forward = mshcomp->repeater_mode && mshcomp->is_send_enabled && is_flood;
+    if (may_forward) {
+        bool is_datagram = (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_TXT_MSG || plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_REQ ||
+                            plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_RESPONSE || plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_PATH);
+        if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ADVERT) {
+            // Deferred: an advert is only worth relaying once its signature has
+            // been checked, otherwise this node amplifies forged identities.
+            may_forward = false;
+        } else if (is_datagram && pos < (size_t)len && data[pos] == mshcomp->my_nodeinfo.pubkey[0]) {
+            // Addressed to us, so it is consumed rather than relayed.
+            may_forward = false;
+        }
+    }
+    if (may_forward) {
+        mshcomp->retransmitFlood(header, data, len);
+    }
+
     if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ADVERT) {
         MCC_Nodeinfo nodeinfo;
         if (nodeinfo.parse(data, pos, len) > 0) {
@@ -453,6 +474,10 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             if (known && nodeinfo.timestamp <= known->timestamp) {
                 if (debugmode) ESP_LOGI(TAG, "Stale advert from '%s', dropped", known->name.c_str());
                 return 0;
+            }
+            // Signature and freshness are established, so this is safe to relay.
+            if (mshcomp->repeater_mode && mshcomp->is_send_enabled && is_flood) {
+                mshcomp->retransmitFlood(header, data, len);
             }
             intOnNodeInfo(nodeinfo);
         }
@@ -905,6 +930,41 @@ void McCompact::sendGroupMsg(const MCC_ChannelEntry& channel, const std::string&
         if (debugmode) ESP_LOGI(TAG, "Group msg sent on %s, %d plaintext bytes", channel.name.c_str(), plain_len);
     } else {
         if (debugmode) ESP_LOGE(TAG, "Failed to send group msg, queue full");
+    }
+}
+
+// MeshCore's Mesh::routeRecvPacket: append our own hash to the path and send the
+// packet on, so the next hop can see how it got here. Only flood-routed packets
+// are extended; direct ones already carry the route they must follow.
+void McCompact::retransmitFlood(const MCC_Header& header, const uint8_t* data, int len) {
+    if (header.path.size() >= max_flood_hops) {
+        if (debugmode) ESP_LOGI(TAG, "Not forwarding, hop limit reached");
+        return;
+    }
+
+    std::vector<uint32_t> path = header.path;
+    uint32_t self_hop = 0;
+    for (uint8_t b = 0; b < header.path_size; ++b) {
+        self_hop |= (uint32_t)my_nodeinfo.pubkey[b] << (8 * b);
+    }
+    path.push_back(self_hop);
+
+    McPacket_t packet;
+    MCC_Header out;
+    if (out.generate_header(&packet, (uint8_t)header.get_route_type(),
+                            (uint8_t)header.get_payload_type(), path,
+                            header.path_size, header.transport_codes) == 0) {
+        return;
+    }
+
+    size_t body_len = (size_t)len - header.header_end_pos;
+    if (packet.length + body_len > sizeof(packet.payload)) return;
+    memcpy(&packet.payload[packet.length], &data[header.header_end_pos], body_len);
+    packet.length += body_len;
+
+    // Lower priority the further the packet has already travelled, as MeshCore does.
+    if (out_queue.push(packet)) {
+        if (debugmode) ESP_LOGI(TAG, "Forwarded flood packet, path now %zu hops", path.size());
     }
 }
 

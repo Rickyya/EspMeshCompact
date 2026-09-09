@@ -55,21 +55,21 @@ enum class MCC_NODEINFO_FLAGS : uint8_t {
 
 class MCC_Header {
    public:
-    MCC_ROUTE_TYPE get_route_type() {
+    MCC_ROUTE_TYPE get_route_type() const {
         return (MCC_ROUTE_TYPE)(header & 0x03);
     }
-    MCC_PAYLOAD_TYPE get_payload_type() {
+    MCC_PAYLOAD_TYPE get_payload_type() const {
         return (MCC_PAYLOAD_TYPE)((header >> 2) & 0x0F);
     }
-    MCC_PAYLOADVER get_payload_version() {
+    MCC_PAYLOADVER get_payload_version() const {
         return (MCC_PAYLOADVER)((header >> 6) & 0x03);
     }
 
-    uint32_t get_transport_codes() {
+    uint32_t get_transport_codes() const {
         return transport_codes;
     }
 
-    const char* get_route_type_str() {
+    const char* get_route_type_str() const {
         switch (get_route_type()) {
             case MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_FLOOD:
                 return "TRANSPORT_FLOOD";
@@ -84,7 +84,7 @@ class MCC_Header {
         }
     }
 
-    const char* get_payload_type_str() {
+    const char* get_payload_type_str() const {
         switch (get_payload_type()) {
             case MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_REQ:
                 return "REQ";

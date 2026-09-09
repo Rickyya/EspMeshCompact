@@ -70,6 +70,22 @@ class McCompact {
     // off accepts forged identities, and is only useful for protocol research.
     void setVerifyAdverts(bool enabled) { verify_adverts = enabled; }
 
+    /**
+     * @brief Rebroadcast flood packets, extending the mesh.
+     *
+     * Off by default, matching MeshCore's own companion firmware, where
+     * Mesh::allowPacketForward() returns false in the base class and the
+     * chat-node role ships with repeat disabled. The repeater, room-server and
+     * sensor roles are the ones that forward out of the box.
+     *
+     * Every enabled node adds airtime, so turn this on deliberately.
+     */
+    void setRepeaterMode(bool enabled) { repeater_mode = enabled; }
+    bool isRepeaterMode() const { return repeater_mode; }
+
+    // Longest path a forwarded packet may carry before this node stops extending it.
+    void setMaxFloodHops(uint8_t hops) { max_flood_hops = hops; }
+
     void getLastSignalData(float& rssi_out, float& snr_out) {
         rssi_out = rssi;
         snr_out = snr;
@@ -220,6 +236,10 @@ class McCompact {
 
     bool auto_ack = true;
     bool verify_adverts = true;
+    bool repeater_mode = false;
+    uint8_t max_flood_hops = 8;
+
+    void retransmitFlood(const MCC_Header& header, const uint8_t* data, int len);
 
     // Messages we have sent and are still expecting an ACK for. Small ring;
     // the oldest entry is silently overwritten.
