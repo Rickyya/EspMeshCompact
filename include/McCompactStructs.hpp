@@ -253,6 +253,47 @@ class MCC_Nodeinfo {
         return pos;
     }
 
+    /**
+     * @brief Encode the advert app_data block; the inverse of parse()'s tail.
+     *
+     * @param out Destination, normally MAX_ADVERT_DATA_SIZE bytes.
+     * @return Bytes written, or 0 if `out` is too small for the flags byte.
+     */
+    size_t encodeAppData(uint8_t* out, size_t out_len) const {
+        if (out_len < 1) return 0;
+        size_t pos = 0;
+        uint8_t f = flags & 0x0F;  // node type; the HAS_* bits are set from the data below
+        pos++;                     // flags byte written last
+
+        if (has_location && pos + 8 <= out_len) {
+            f |= (uint8_t)MCC_NODEINFO_FLAGS::HAS_LOCATION;
+            memcpy(&out[pos], &latitude_i, 4);
+            pos += 4;
+            memcpy(&out[pos], &longitude_i, 4);
+            pos += 4;
+        }
+
+        if (!name.empty() && pos < out_len) {
+            size_t name_len = utf8PrefixLen(name.data(), name.size(), out_len - pos);
+            if (name_len > 0) {
+                f |= (uint8_t)MCC_NODEINFO_FLAGS::HAS_NAME;
+                memcpy(&out[pos], name.data(), name_len);
+                pos += name_len;
+            }
+        }
+
+        out[0] = f;
+        return pos;
+    }
+
+    // Longest prefix of `s` that fits `max_len` without splitting a UTF-8 sequence.
+    static size_t utf8PrefixLen(const char* s, size_t str_len, size_t max_len) {
+        if (str_len <= max_len) return str_len;
+        size_t n = max_len;
+        while (n > 0 && ((uint8_t)s[n] & 0xC0) == 0x80) --n;
+        return n;
+    }
+
     bool isChat() const {
         return (flags & (uint8_t)MCC_NODEINFO_FLAGS::IS_CHAT_NODE) != 0;
     }

@@ -33,6 +33,7 @@
 #define CIPHER_KEY_SIZE 16
 #define CIPHER_BLOCK_SIZE 16
 #define CIPHER_MAC_SIZE 2
+#define MAX_ADVERT_DATA_SIZE 32
 
 class McCompact {
    public:

@@ -418,6 +418,11 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ADVERT) {
         MCC_Nodeinfo nodeinfo;
         if (nodeinfo.parse(data, pos, len) > 0) {
+            // Our own advert, echoed back by a repeater. Do not add ourselves to the DB.
+            if (memcmp(nodeinfo.pubkey, mshcomp->my_nodeinfo.pubkey, PUB_KEY_SIZE) == 0) {
+                if (debugmode) ESP_LOGI(TAG, "Ignoring own advert");
+                return 0;
+            }
             intOnNodeInfo(nodeinfo);
         }
         return 1;
@@ -701,11 +706,65 @@ int McCompact::secure_memcmp(const void* a, const void* b, size_t size) {
     return result;
 }
 
-void McCompact::sendNodeInfo(const MCC_MyNodeInfo& info) {
-    McPacket_t packet;
-    // packet.length = info.
-    // todo
+// An unset MCC_MyNodeInfo has an all-zero pubkey; signing with it produces garbage.
+static bool hasIdentity(const MCC_MyNodeInfo& info) {
+    for (size_t i = 0; i < PUB_KEY_SIZE; ++i) {
+        if (info.pubkey[i] != 0) return true;
+    }
+    return false;
 }
+
+void McCompact::sendNodeInfo(const MCC_MyNodeInfo& info) {
+    if (!hasIdentity(info)) {
+        if (debugmode) ESP_LOGE(TAG, "Advert: no identity, call loadPrivKey() or generateMyKeyPair() first");
+        return;
+    }
+
+    McPacket_t packet;
+    MCC_Header header;
+    if (header.generate_header(&packet, (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_FLOOD,
+                               (uint8_t)MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ADVERT, {}, 1, 0) == 0) {
+        if (debugmode) ESP_LOGE(TAG, "Advert: failed to build header");
+        return;
+    }
+
+    uint8_t app_data[MAX_ADVERT_DATA_SIZE];
+    size_t app_data_len = info.encodeAppData(app_data, sizeof(app_data));
+    uint32_t timestamp = getCurrentTime();
+
+    // The signature covers pub_key | timestamp | app_data -- itself excluded.
+    uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
+    size_t msg_len = 0;
+    memcpy(&message[msg_len], info.pubkey, PUB_KEY_SIZE);
+    msg_len += PUB_KEY_SIZE;
+    memcpy(&message[msg_len], &timestamp, 4);
+    msg_len += 4;
+    memcpy(&message[msg_len], app_data, app_data_len);
+    msg_len += app_data_len;
+
+    uint8_t signature[SIGNATURE_SIZE];
+    info.sign(signature, message, msg_len);
+
+    if (packet.length + PUB_KEY_SIZE + 4 + SIGNATURE_SIZE + app_data_len > sizeof(packet.payload)) {
+        if (debugmode) ESP_LOGE(TAG, "Advert: payload too long");
+        return;
+    }
+    memcpy(&packet.payload[packet.length], info.pubkey, PUB_KEY_SIZE);
+    packet.length += PUB_KEY_SIZE;
+    memcpy(&packet.payload[packet.length], &timestamp, 4);
+    packet.length += 4;
+    memcpy(&packet.payload[packet.length], signature, SIGNATURE_SIZE);
+    packet.length += SIGNATURE_SIZE;
+    memcpy(&packet.payload[packet.length], app_data, app_data_len);
+    packet.length += app_data_len;
+
+    if (out_queue.push(packet)) {
+        if (debugmode) ESP_LOGI(TAG, "Advert sent, timestamp=%lu, app_data_len=%zu", timestamp, app_data_len);
+    } else {
+        if (debugmode) ESP_LOGE(TAG, "Failed to send advert, queue full");
+    }
+}
+
 void McCompact::sendGroupMsg(const MCC_ChannelEntry& channel, const std::string& msg) {
 }
 
