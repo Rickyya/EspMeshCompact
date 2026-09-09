@@ -1588,7 +1588,16 @@ bool MtCompact::decryptCurve25519(uint32_t fromNode, uint8_t* remotePublic, uint
 bool MtCompact::setDHPublicKey(uint8_t* pubKey) {
     uint8_t local_priv[32];
     memcpy(shared_key, pubKey, 32);
-    memcpy(local_priv, my_nodeinfo.private_key, my_nodeinfo.public_key_size);
+    // The private key is always 32 bytes. This used to copy public_key_size
+    // bytes, which is 0 until a key is generated or loaded -- and is reset to 0
+    // by MtCompactHelpers::NodeInfoBuilder. Calling NodeInfoBuilder after
+    // loadPrivKey() therefore left local_priv as uninitialised stack and
+    // derived the shared secret from it, silently breaking PKI.
+    if (my_nodeinfo.public_key_size != sizeof(local_priv)) {
+        ESP_LOGE("MT_CRYPTO", "No usable private key (public_key_size=%u); call loadPrivKey() after NodeInfoBuilder()", my_nodeinfo.public_key_size);
+        return false;
+    }
+    memcpy(local_priv, my_nodeinfo.private_key, sizeof(local_priv));
     // Calculate the shared secret with the specified node's public key and our private key
     // This includes an internal weak key check, which among other things looks for an all 0 public key and shared key.
     if (!Curve25519::dh2(shared_key, local_priv)) {
