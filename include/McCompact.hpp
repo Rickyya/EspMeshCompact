@@ -52,9 +52,12 @@ class McCompact {
     // MeshCore group text carries "<sender>: <message>"; sender is split out here.
     using OnGroupMsg = void (*)(const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg);
 
+    using OnTextMessage = void (*)(const MCC_Nodeinfo& sender, uint32_t timestamp, uint8_t txt_type, const std::string& msg);
+
     void setOnRaw(OnRaw cb) { onRaw = cb; }
     void setOnNodeInfo(OnNodeInfo cb) { onNodeInfo = cb; }
     void setOnGroupMsg(OnGroupMsg cb) { onGroupMsg = cb; }
+    void setOnTextMessage(OnTextMessage cb) { onTextMessage = cb; }
 
     void getLastSignalData(float& rssi_out, float& snr_out) {
         rssi_out = rssi;
@@ -132,9 +135,11 @@ class McCompact {
     void setMyNames(const std::string& name) {
         my_nodeinfo.name = name;
     }
+    // Degrees; the wire format carries micro-degrees. Signed, so the southern
+    // and western hemispheres survive the conversion.
     void setMyLocation(float latitude, float longitude) {
-        my_nodeinfo.latitude_i = static_cast<uint32_t>(latitude * 1e6);
-        my_nodeinfo.longitude_i = static_cast<uint32_t>(longitude * 1e6);
+        my_nodeinfo.latitude_i = static_cast<int32_t>(latitude * 1e6);
+        my_nodeinfo.longitude_i = static_cast<int32_t>(longitude * 1e6);
         my_nodeinfo.has_location = true;
     }
 
@@ -159,6 +164,7 @@ class McCompact {
         sendNodeInfo(my_nodeinfo);
     }
     void sendGroupMsg(const MCC_ChannelEntry& channel, const std::string& msg);
+    void sendTextMessage(MCC_Nodeinfo& peer, const std::string& msg, uint8_t attempt = 0);
     void sendNeighborDiscoveryRequest(uint8_t filter = 15, std::vector<uint32_t> path = {});
 
    private:
@@ -198,6 +204,7 @@ class McCompact {
     OnRaw onRaw = nullptr;
     OnNodeInfo onNodeInfo = nullptr;
     OnGroupMsg onGroupMsg = nullptr;
+    OnTextMessage onTextMessage = nullptr;
 
     McCompactOutQueue out_queue;  // Outgoing queue for packets to be sent
 };

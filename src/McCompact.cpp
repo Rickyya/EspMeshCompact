@@ -514,6 +514,9 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             size_t msg_len = strnlen((const char*)&datadec[pos], (size_t)lenn - pos);
             std::string msg((const char*)&datadec[pos], msg_len);
             if (debugmode) ESP_LOGI(TAG, "TXT_MSG from '%s': timestamp=%lu, type=%u, msg=%s", sender->name.c_str(), timestamp, txt_type, msg.c_str());
+            if (mshcomp->onTextMessage) {
+                mshcomp->onTextMessage(*sender, timestamp, txt_type, msg);
+            }
             return 1;
         }
     }
@@ -855,6 +858,60 @@ void McCompact::sendGroupMsg(const MCC_ChannelEntry& channel, const std::string&
         if (debugmode) ESP_LOGI(TAG, "Group msg sent on %s, %d plaintext bytes", channel.name.c_str(), plain_len);
     } else {
         if (debugmode) ESP_LOGE(TAG, "Failed to send group msg, queue full");
+    }
+}
+
+void McCompact::sendTextMessage(MCC_Nodeinfo& peer, const std::string& msg, uint8_t attempt) {
+    if (!hasIdentity(my_nodeinfo)) {
+        if (debugmode) ESP_LOGE(TAG, "TextMessage: no identity, call loadPrivKey() first");
+        return;
+    }
+
+    McPacket_t packet;
+    MCC_Header header;
+    if (header.generate_header(&packet, (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_FLOOD,
+                               (uint8_t)MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_TXT_MSG, {}, 1, 0) == 0) {
+        if (debugmode) ESP_LOGE(TAG, "TextMessage: failed to build header");
+        return;
+    }
+
+    if (!peer.has_shared_secret) {
+        my_nodeinfo.calcSharedSecret(peer.shared_secret, peer.pubkey);
+        peer.has_shared_secret = true;
+    }
+
+    // timestamp | attempt | text, NUL terminated.
+    uint8_t plain[5 + MAX_TEXT_LEN + 1];
+    uint32_t timestamp = getCurrentTime();
+    memcpy(plain, &timestamp, 4);
+    plain[4] = (attempt & 3) | (MCC_TXT_TYPE_PLAIN << 2);
+
+    int text_len = (int)msg.size();
+    if (text_len > MAX_TEXT_LEN) text_len = MAX_TEXT_LEN;
+    memcpy(&plain[5], msg.data(), text_len);
+    plain[5 + text_len] = 0;
+    int plain_len = 5 + text_len;
+
+    uint8_t enc[MAX_PACKET_PAYLOAD];
+    int enc_len = encryptThenMAC(peer.shared_secret, enc, plain, plain_len);
+    if (enc_len <= 0) {
+        if (debugmode) ESP_LOGE(TAG, "TextMessage: encryption failed");
+        return;
+    }
+
+    if (packet.length + 2 + enc_len > (int)sizeof(packet.payload)) {
+        if (debugmode) ESP_LOGE(TAG, "TextMessage: payload too long");
+        return;
+    }
+    packet.payload[packet.length++] = peer.pubkey[0];          // dest hash
+    packet.payload[packet.length++] = my_nodeinfo.pubkey[0];   // src hash
+    memcpy(&packet.payload[packet.length], enc, enc_len);
+    packet.length += enc_len;
+
+    if (out_queue.push(packet)) {
+        if (debugmode) ESP_LOGI(TAG, "Text message sent to '%s', %d plaintext bytes", peer.name.c_str(), plain_len);
+    } else {
+        if (debugmode) ESP_LOGE(TAG, "Failed to send text message, queue full");
     }
 }
 

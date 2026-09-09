@@ -55,8 +55,21 @@ extern "C" void app_main(void) {
     mesh.setOnGroupMsg([](const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg) {
         printf("Group Msg on %s at %lu from %s: %s\n", channel.name.c_str(), timestamp, sender.c_str(), msg.c_str());
     });
+    mesh.setOnTextMessage([](const MCC_Nodeinfo& sender, uint32_t timestamp, uint8_t txt_type, const std::string& msg) {
+        printf("DM from %s at %lu (type %u): %s\n", sender.name.c_str(), timestamp, txt_type, msg.c_str());
+        // Echo it back. The callback hands out a const view, so re-find the
+        // contact in the DB to get a reference we can cache the secret on.
+        for (auto& peer : mesh.nodeinfo_db) {
+            if (memcmp(peer.pubkey, sender.pubkey, 32) == 0) {
+                mesh.sendTextMessage(peer, "ack: " + msg);
+                break;
+            }
+        }
+    });
+
     std::string name = "TestNode";
-    McCompactHelpers::NodeInfoBuilder(mesh.getMyNodeInfo(), name, 47.4979, 19.0402, MCC_NODEINFO_FLAGS::IS_CHAT_NODE);
+    // NodeInfoBuilder takes micro-degrees, not degrees.
+    McCompactHelpers::NodeInfoBuilder(mesh.getMyNodeInfo(), name, 47497900, 19040200, MCC_NODEINFO_FLAGS::IS_CHAT_NODE);
 
     // Reuse the stored identity so this node keeps the same address across reboots.
     mesh.loadPrivKey();
