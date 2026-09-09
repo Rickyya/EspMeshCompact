@@ -641,7 +641,13 @@ int McCompact::encrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_
 int McCompact::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
     int enc_len = encrypt(shared_secret, dest + CIPHER_MAC_SIZE, src, src_len);
     const mbedtls_md_info_t* md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    // This single function performs the reset, update, and finalize steps.
+    if (md_info == NULL) {
+        return 0;
+    }
+    // mbedtls_md_hmac always writes a full 32-byte digest, so it cannot write
+    // straight to dest: only CIPHER_MAC_SIZE bytes are reserved there and the
+    // rest of the digest would land on top of the ciphertext.
+    uint8_t full_mac[32];
     int ret = mbedtls_md_hmac(
         md_info,                 // Use SHA256
         shared_secret,           // The key for the HMAC
@@ -651,9 +657,13 @@ int McCompact::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const
                                  // produced could ever be verified.
         dest + CIPHER_MAC_SIZE,  // The message to authenticate
         enc_len,                 // The length of the message
-        dest                     // The destination for the 32-byte MAC output
+        full_mac                 // The destination for the 32-byte MAC output
     );
-    return ret;
+    if (ret != 0) {
+        return 0;
+    }
+    memcpy(dest, full_mac, CIPHER_MAC_SIZE);
+    return CIPHER_MAC_SIZE + enc_len;
 };
 int McCompact::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
     if (src_len <= CIPHER_MAC_SIZE) {
