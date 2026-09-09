@@ -776,6 +776,53 @@ void McCompact::sendNodeInfo(const MCC_MyNodeInfo& info) {
 }
 
 void McCompact::sendGroupMsg(const MCC_ChannelEntry& channel, const std::string& msg) {
+    McPacket_t packet;
+    MCC_Header header;
+    if (header.generate_header(&packet, (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_FLOOD,
+                               (uint8_t)MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_GRP_TXT, {}, 1, 0) == 0) {
+        if (debugmode) ESP_LOGE(TAG, "GroupMsg: failed to build header");
+        return;
+    }
+
+    // timestamp | txt_type | "<sender>: <text>", NUL terminated.
+    uint8_t plain[5 + MAX_TEXT_LEN + 1];
+    uint32_t timestamp = getCurrentTime();
+    memcpy(plain, &timestamp, 4);
+    plain[4] = MCC_TXT_TYPE_PLAIN;
+
+    int text_room = MAX_TEXT_LEN;
+    int prefix_len = snprintf((char*)&plain[5], text_room + 1, "%s: ", my_nodeinfo.name.c_str());
+    if (prefix_len < 0) return;
+    if (prefix_len > text_room) prefix_len = text_room;
+
+    int text_len = (int)msg.size();
+    if (text_len > text_room - prefix_len) text_len = text_room - prefix_len;
+    if (text_len < 0) text_len = 0;
+    memcpy(&plain[5 + prefix_len], msg.data(), text_len);
+    plain[5 + prefix_len + text_len] = 0;
+
+    int plain_len = 5 + prefix_len + text_len;
+
+    uint8_t enc[MAX_PACKET_PAYLOAD];
+    int enc_len = encryptThenMAC(channel.secret, enc, plain, plain_len);
+    if (enc_len <= 0) {
+        if (debugmode) ESP_LOGE(TAG, "GroupMsg: encryption failed");
+        return;
+    }
+
+    if (packet.length + 1 + enc_len > (int)sizeof(packet.payload)) {
+        if (debugmode) ESP_LOGE(TAG, "GroupMsg: payload too long");
+        return;
+    }
+    packet.payload[packet.length++] = channel.hash[0];
+    memcpy(&packet.payload[packet.length], enc, enc_len);
+    packet.length += enc_len;
+
+    if (out_queue.push(packet)) {
+        if (debugmode) ESP_LOGI(TAG, "Group msg sent on %s, %d plaintext bytes", channel.name.c_str(), plain_len);
+    } else {
+        if (debugmode) ESP_LOGE(TAG, "Failed to send group msg, queue full");
+    }
 }
 
 void McCompact::sendNeighborDiscoveryRequest(uint8_t filter, std::vector<uint32_t> path) {

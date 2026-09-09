@@ -34,6 +34,12 @@
 #define CIPHER_BLOCK_SIZE 16
 #define CIPHER_MAC_SIZE 2
 #define MAX_ADVERT_DATA_SIZE 32
+#define MAX_TEXT_LEN 160
+
+// MeshCore TXT_TYPE_* values, carried in the byte after the timestamp.
+#define MCC_TXT_TYPE_PLAIN 0
+#define MCC_TXT_TYPE_CLI_DATA 1
+#define MCC_TXT_TYPE_SIGNED_PLAIN 2
 
 class McCompact {
    public:
