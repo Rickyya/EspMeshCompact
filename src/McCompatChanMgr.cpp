@@ -60,3 +60,42 @@ MCC_ChannelEntry* McCompatChanMgr::getChannelByHashAndData(uint8_t* payload, siz
     out_decoded_len = 0;
     return nullptr;
 }
+
+bool McCompatChanMgr::serialize(std::vector<uint8_t>& out) const {
+    out.clear();
+    if (channels.size() > 255) return false;
+    out.push_back((uint8_t)channels.size());
+    for (const auto& ch : channels) {
+        if (ch.name.size() > 255 || ch.secret_len > sizeof(ch.secret)) return false;
+        out.push_back((uint8_t)ch.name.size());
+        out.insert(out.end(), ch.name.begin(), ch.name.end());
+        out.push_back(ch.secret_len);
+        out.insert(out.end(), ch.secret, ch.secret + ch.secret_len);
+    }
+    return true;
+}
+
+// Leaves the live list untouched unless the whole blob parses.
+bool McCompatChanMgr::deserialize(const std::vector<uint8_t>& in) {
+    if (in.empty()) return false;
+    size_t pos = 0;
+    uint8_t count = in[pos++];
+    std::vector<MCC_ChannelEntry> loaded;
+    for (uint8_t i = 0; i < count; ++i) {
+        if (pos >= in.size()) return false;
+        uint8_t name_len = in[pos++];
+        if (pos + name_len >= in.size()) return false;
+        MCC_ChannelEntry entry;
+        entry.name.assign((const char*)&in[pos], name_len);
+        pos += name_len;
+        uint8_t secret_len = in[pos++];
+        if (secret_len > sizeof(entry.secret) || pos + secret_len > in.size()) return false;
+        entry.secret_len = secret_len;
+        memcpy(entry.secret, &in[pos], secret_len);
+        pos += secret_len;
+        CompactHelpers::sha256(entry.hash, sizeof(entry.hash), entry.secret, secret_len);
+        loaded.push_back(entry);
+    }
+    channels = loaded;
+    return true;
+}

@@ -9,6 +9,7 @@
 set(mesh_srcs
     "src/CompactHelpers.cpp"
     "src/McCompact.cpp"
+    "src/McCompactFileIO.cpp"
     "src/McCompactHelpers.cpp"
     "src/McCompactStructs.cpp"
     "src/McCompatChanMgr.cpp"

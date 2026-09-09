@@ -19,6 +19,7 @@
 #include "McCompactNodeInfoDB.hpp"
 #include "McCompatChanMgr.hpp"
 #include "McCompactOutQueue.hpp"
+#include "McCompactFileIO.hpp"
 #include "mbedtls/constant_time.h"
 #include "esp_timer.h"
 #include <ctime>
@@ -71,6 +72,31 @@ class McCompact {
     uint32_t getCurrentTime() const {
         if (!clock_is_set) return (uint32_t)time(NULL);
         return clock_base + (uint32_t)((esp_timer_get_time() - clock_set_us) / 1000000);
+    }
+
+    void saveNodeDb() {
+        McCompactFileIO::saveNodeDb(nodeinfo_db);
+    }
+    void loadNodeDb() {
+        McCompactFileIO::loadNodeDb(nodeinfo_db);
+    }
+
+    void saveChannels() {
+        McCompactFileIO::saveChannels(chan_mgr);
+    }
+    void loadChannels() {
+        McCompactFileIO::loadChannels(chan_mgr);
+    }
+
+    void savePrivKey() {
+        McCompactFileIO::savePrivateKey(my_nodeinfo);
+    }
+    // Restores the stored identity, generating and persisting a new one on first boot.
+    void loadPrivKey() {
+        if (!McCompactFileIO::loadPrivateKey(my_nodeinfo)) {
+            my_nodeinfo.generateKeyPair();
+            McCompactFileIO::savePrivateKey(my_nodeinfo);
+        }
     }
 
     static int decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);

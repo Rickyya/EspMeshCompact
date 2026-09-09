@@ -14,6 +14,9 @@ class McCompatChanMgr {
     MCC_ChannelEntry* getChannelByHashAndData(uint8_t* payload, size_t payload_len, uint8_t* decoded, size_t& out_decoded_len);  // returns null on failure
     size_t getChannelCount();
 
+    bool serialize(std::vector<uint8_t>& out) const;
+    bool deserialize(const std::vector<uint8_t>& in);
+
    private:
     std::vector<MCC_ChannelEntry> channels;
 };
