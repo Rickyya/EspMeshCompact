@@ -107,10 +107,10 @@ class McCompact {
         }
     }
 
-    static int decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
+    static int decrypt(const uint8_t* shared_secret, uint8_t* dest, size_t dest_len, const uint8_t* src, int src_len);
     static int encrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
     static int encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
-    static int MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
+    static int MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, size_t dest_len, const uint8_t* src, int src_len);
     static int secure_memcmp(const void* a, const void* b, size_t size);
 
     // To enable or disable this module's logging to serial

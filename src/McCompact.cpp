@@ -447,7 +447,7 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
         int lenn = 0;
         for (const auto& peer : mshcomp->nodeinfo_db) {
             memcpy(secret, peer.pubkey, PUB_KEY_SIZE);
-            lenn = MACThenDecrypt(secret, datadec, macanddata, len - pos);
+            lenn = MACThenDecrypt(secret, datadec, sizeof(datadec), macanddata, len - pos);
             if (lenn > 0) {
                 break;  // Exit the loop if decryption is successful
             }
@@ -568,7 +568,13 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     return 0;
 }
 
-int McCompact::decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
+int McCompact::decrypt(const uint8_t* shared_secret, uint8_t* dest, size_t dest_len, const uint8_t* src, int src_len) {
+    // src_len comes off the air. The ECB loop reads and writes whole 16-byte
+    // blocks, so a length that is not a multiple of 16 over-reads src, and one
+    // larger than dest_len overruns dest.
+    if (src_len <= 0 || (src_len % 16) != 0 || (size_t)src_len > dest_len) {
+        return 0;
+    }
     mbedtls_aes_context aes_ctx;
     uint8_t* dp = dest;
     const uint8_t* sp = src;
@@ -665,9 +671,12 @@ int McCompact::encryptThenMAC(const uint8_t* shared_secret, uint8_t* dest, const
     memcpy(dest, full_mac, CIPHER_MAC_SIZE);
     return CIPHER_MAC_SIZE + enc_len;
 };
-int McCompact::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len) {
+int McCompact::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, size_t dest_len, const uint8_t* src, int src_len) {
     if (src_len <= CIPHER_MAC_SIZE) {
         return 0;  // Invalid source length
+    }
+    if ((size_t)(src_len - CIPHER_MAC_SIZE) > dest_len) {
+        return 0;  // Ciphertext cannot fit the destination
     }
     uint8_t calculated_mac[32];  // Buffer to hold the calculated MAC
     const uint8_t* received_mac = src;
@@ -694,7 +703,7 @@ int McCompact::MACThenDecrypt(const uint8_t* shared_secret, uint8_t* dest, const
     // 3. 🛡️ Securely compare the received MAC with the calculated MAC.
     if (secure_memcmp(received_mac, calculated_mac, CIPHER_MAC_SIZE) == 0) {
         // 4. If MAC is valid, decrypt the ciphertext.
-        return decrypt(shared_secret, dest, ciphertext, ciphertext_len);
+        return decrypt(shared_secret, dest, dest_len, ciphertext, ciphertext_len);
     }
 
     // If MACs do not match, return 0 to indicate authentication failure.
