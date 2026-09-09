@@ -962,7 +962,9 @@ void McCompact::retransmitFlood(const MCC_Header& header, const uint8_t* data, i
     memcpy(&packet.payload[packet.length], &data[header.header_end_pos], body_len);
     packet.length += body_len;
 
-    // Lower priority the further the packet has already travelled, as MeshCore does.
+    // NOTE: MeshCore additionally de-prioritises and jitters the retransmit by
+    // path length to spread contention. Our out-queue has no priority levels, so
+    // forwarded packets go out at the queue's fixed rate.
     if (out_queue.push(packet)) {
         if (debugmode) ESP_LOGI(TAG, "Forwarded flood packet, path now %zu hops", path.size());
     }

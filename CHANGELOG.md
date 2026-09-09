@@ -7,7 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MeshCore (`McCompact`) can now transmit. `sendNodeInfo` and `sendGroupMsg` were
+  empty function bodies, so the node could hear the mesh but nothing on the mesh
+  ever learned it existed. It now sends signed adverts, group text messages and
+  direct messages, and acknowledges what it receives.
+- `McCompact::sendTextMessage` and the `OnTextMessage` callback for MeshCore
+  direct messages, plus `OnAck` and `setAutoAck` for delivery confirmation.
+  `OnAck` mirrors the shape of `MtCompact`'s `OnRouting`.
+- MeshCore identity, contact and channel persistence via `McCompactFileIO`
+  (NVS namespaces `meshcore` and `mcpriv`), mirroring `MtCompactFileIO`.
+  Previously a fresh Ed25519 keypair was generated on every boot, so this node's
+  address on the mesh changed on each power cycle and no peer could keep it as a
+  contact.
+- `McCompact::setClock` / `getCurrentTime`. MeshCore stamps adverts and messages
+  with epoch seconds and uses them for replay detection; there was no time source.
+- Duplicate-packet suppression (`McCompactSeenTable`), modelled on MeshCore's
+  `SimpleMeshTables`. MeshCore floods, so every packet previously arrived and was
+  reported once per route that reached the node.
+- Optional repeater mode (`setRepeaterMode`, `setMaxFloodHops`), **off by default**,
+  matching MeshCore's own `companion_radio` chat-node firmware. Adverts are only
+  relayed once their signature verifies, and datagrams addressed to this node are
+  consumed rather than relayed.
+
+### Fixed
+
+- **MeshCore direct messages never worked.** The receive path used each contact's
+  raw public key as the decryption key instead of the ECDH shared secret, so the
+  MAC never matched and every `TXT_MSG`, `REQ`, `RESPONSE` and `PATH` was silently
+  discarded. Now uses `MCC_MyNodeInfo::calcSharedSecret`, which had been compiled
+  but unreferenced since it was written. The destination hash is also honoured
+  rather than parsed and ignored, and the shared secret is cached per contact.
+- **Remotely reachable buffer overflow.** `McCompact::decrypt` wrote
+  `ceil(src_len/16)*16` bytes with no knowledge of the destination size, while the
+  radio task accepts 255-byte packets and every destination is a 184-byte stack
+  array. Reaching it required only a valid 2-byte MAC, which is trivial for a
+  channel whose key is published, as MeshCore's public channel key is. `decrypt`
+  and `MACThenDecrypt` now take a destination length.
+- **MeshCore adverts were never authenticated.** The 64-byte Ed25519 signature was
+  skipped, so any node could claim any identity, name and location. Adverts are now
+  verified and stale timestamps rejected; `setVerifyAdverts(false)` opts out for
+  protocol research.
+- `encryptThenMAC` passed `dest` to `mbedtls_md_hmac`, which always writes a full
+  32-byte digest, so each call overwrote the first 30 bytes of the ciphertext it had
+  just produced. It also returned a status code rather than a length. Latent because
+  its only two callers were the empty send stubs.
+- `MCC_Header::generate_header` emitted path hops using the `path_size` member
+  (always 1) rather than the `path_bytenum` argument, truncating any 2- or 3-byte
+  path while declaring it at full width. `parse` declared a local `path_size` that
+  shadowed the member, so the member never reflected the parsed value.
+- `sendNeighborDiscoveryRequest` wrote its tag big-endian while both our parser and
+  MeshCore read it little-endian.
+- The MeshCore `TXT_MSG` handler computed its body length from the raw packet length
+  against an offset into the decrypted buffer, reading past the plaintext.
+- `McCompactHelpers::NodeInfoBuilder` takes micro-degrees, but `examples/mc_receiver`
+  passed degrees, so `47.4979` became 47 micro-degrees. Harmless while the node could
+  not advertise; not harmless now. `setMyLocation` also cast through `uint32_t`,
+  the wrong signedness for southern and western coordinates.
+
 ### Changed
+
+- `OnGroupMsg` now carries the timestamp and the sender name split from MeshCore's
+  `"<sender>: <message>"` body, and unsupported `txt_type` values are dropped rather
+  than reported as corrupt-looking chat messages. This is a breaking change to the
+  callback signature.
+- `McCompact::decrypt` and `McCompact::MACThenDecrypt` take a destination-length
+  argument (see the overflow fix above). Breaking change if called directly.
 
 - Replaced the vendored `src/aes-ccm.cpp` (a copy of hostap's AES-CCM built on the
   rweather `AESSmall256` software cipher) with mbedtls CCM. mbedtls was already a

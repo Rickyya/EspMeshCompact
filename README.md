@@ -11,7 +11,9 @@ This is a **proof-of-concept (POC)** compact Meshtastic + MeshCore component for
 ## Features
 
 - Basic Meshtastic protocol support.
-- Basic MeshCore protocol support. (WIP)
+- Basic MeshCore protocol support: signed adverts, group text, direct messages
+  with ECDH, delivery ACKs, and an optional (off by default) repeater mode.
+  Path learning, TRACE, GRP_DATA and ANON_REQ are not implemented yet.
 
 ## Requirements
 
@@ -50,7 +52,8 @@ examples/               buildable IDF projects
 Two examples live in this repository and build against these sources directly
 through `override_path`, so they always track the working tree:
 
-- `examples/mc_receiver` - listens for MeshCore adverts and group messages.
+- `examples/mc_receiver` - a MeshCore chat node: advertises itself, sends and
+  receives group messages, and echoes direct messages back to the sender.
 - `examples/mt_listener` - listens for Meshtastic text, node info and positions.
 
 ```sh
