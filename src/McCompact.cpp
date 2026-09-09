@@ -2,6 +2,7 @@
 
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "ed_25519.h"
 #define TAG "McCompact"
 
 volatile bool packetFlag = false;
@@ -392,6 +393,25 @@ void McCompact::intOnNodeInfo(MCC_Nodeinfo& nodeinfo) {
     }
 }
 
+// Advert layout is pub_key | timestamp | signature | app_data, and the signature
+// covers pub_key | timestamp | app_data, so the signed message has to be
+// reassembled around the 64-byte signature that sits in the middle of it.
+static bool verifyAdvert(const uint8_t* data, size_t start, int len) {
+    const size_t fixed = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;
+    if (start + fixed > (size_t)len) return false;
+    size_t app_data_len = (size_t)len - start - fixed;
+    if (app_data_len > MAX_ADVERT_DATA_SIZE) app_data_len = MAX_ADVERT_DATA_SIZE;
+
+    uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
+    size_t msg_len = 0;
+    memcpy(&message[msg_len], &data[start], PUB_KEY_SIZE + 4);
+    msg_len += PUB_KEY_SIZE + 4;
+    memcpy(&message[msg_len], &data[start + fixed], app_data_len);
+    msg_len += app_data_len;
+
+    return ed25519_verify(&data[start + PUB_KEY_SIZE + 4], message, msg_len, &data[start]) == 1;
+}
+
 int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     MCC_Header header;
     size_t pos = header.parse(data, len);
@@ -421,6 +441,17 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             // Our own advert, echoed back by a repeater. Do not add ourselves to the DB.
             if (memcmp(nodeinfo.pubkey, mshcomp->my_nodeinfo.pubkey, PUB_KEY_SIZE) == 0) {
                 if (debugmode) ESP_LOGI(TAG, "Ignoring own advert");
+                return 0;
+            }
+            if (mshcomp->verify_adverts && !verifyAdvert(data, pos, len)) {
+                if (debugmode) ESP_LOGE(TAG, "Advert with bad signature, dropped");
+                return 0;
+            }
+            // An advert must be newer than the last one we accepted for this key,
+            // otherwise a captured advert can be replayed back at the mesh.
+            MCC_Nodeinfo* known = mshcomp->nodeinfo_db.getByPubKey(nodeinfo.pubkey);
+            if (known && nodeinfo.timestamp <= known->timestamp) {
+                if (debugmode) ESP_LOGI(TAG, "Stale advert from '%s', dropped", known->name.c_str());
                 return 0;
             }
             intOnNodeInfo(nodeinfo);

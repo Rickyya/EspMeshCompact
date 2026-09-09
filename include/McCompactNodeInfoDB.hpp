@@ -51,6 +51,15 @@ class NodeInfoCoreDB {
     iterator begin() { return iterator(nodeinfos, valid, 0); }
     iterator end() { return iterator(nodeinfos, valid, MAX_NODES); }
 
+    MCC_Nodeinfo* getByPubKey(const uint8_t* pubkey) {
+        for (size_t i = 0; i < MAX_NODES; ++i) {
+            if (valid[i] && memcmp(nodeinfos[i].pubkey, pubkey, sizeof(nodeinfos[i].pubkey)) == 0) {
+                return &nodeinfos[i];
+            }
+        }
+        return nullptr;
+    }
+
     MCC_Nodeinfo* getByIndex(size_t index) {
         if (index < MAX_NODES && valid[index]) {
             return &nodeinfos[index];

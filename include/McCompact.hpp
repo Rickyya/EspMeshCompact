@@ -66,6 +66,10 @@ class McCompact {
     // Whether to reply with an ACK when a direct text message arrives.
     void setAutoAck(bool enabled) { auto_ack = enabled; }
 
+    // Whether to check the Ed25519 signature on incoming adverts. Leaving this
+    // off accepts forged identities, and is only useful for protocol research.
+    void setVerifyAdverts(bool enabled) { verify_adverts = enabled; }
+
     void getLastSignalData(float& rssi_out, float& snr_out) {
         rssi_out = rssi;
         snr_out = snr;
@@ -215,6 +219,7 @@ class McCompact {
     OnAck onAck = nullptr;
 
     bool auto_ack = true;
+    bool verify_adverts = true;
 
     // Messages we have sent and are still expecting an ACK for. Small ring;
     // the oldest entry is silently overwritten.
