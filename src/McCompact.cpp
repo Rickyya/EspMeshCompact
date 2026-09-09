@@ -409,6 +409,12 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     }
     MCC_PAYLOAD_TYPE plt = header.get_payload_type();
 
+    // MeshCore floods, so the same packet arrives once per route that reaches us.
+    if (mshcomp->seen_table.checkAndMark((uint8_t)plt, &data[pos], len - pos)) {
+        if (debugmode) ESP_LOGI(TAG, "Duplicate packet dropped");
+        return 0;
+    }
+
     if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ADVERT) {
         MCC_Nodeinfo nodeinfo;
         if (nodeinfo.parse(data, pos, len) > 0) {

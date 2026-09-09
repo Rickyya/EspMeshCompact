@@ -19,6 +19,7 @@
 #include "McCompactNodeInfoDB.hpp"
 #include "McCompatChanMgr.hpp"
 #include "McCompactOutQueue.hpp"
+#include "McCompactSeenTable.hpp"
 #include "McCompactFileIO.hpp"
 #include "mbedtls/constant_time.h"
 #include "esp_timer.h"
@@ -182,6 +183,8 @@ class McCompact {
     uint32_t clock_base = 0;
     int64_t clock_set_us = 0;
     bool clock_is_set = false;
+
+    McCompactSeenTable seen_table;
 
     MCC_MyNodeInfo my_nodeinfo;
     OnRaw onRaw = nullptr;
