@@ -1323,6 +1323,12 @@ void MtCompact::sendTextMessage(const std::string& text, uint32_t dstnode, uint1
 
     // Only plain text has a compressed portnum. USX_PSET_DFLT must match the
     // preset the receive path passes to unishox2_decompress().
+    //
+    // Compiled out unless CONFIG_MTCOMPACT_TEXT_COMPRESSION is set: referencing
+    // unishox2_compress at all pulls in unishox2_compress_lines, about 4.2 kB of
+    // flash, which a runtime flag alone cannot avoid. Decompression is always
+    // built, so incoming compressed text is understood either way.
+#if defined(CONFIG_MTCOMPACT_TEXT_COMPRESSION)
     if (compress_text && entry.data.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !text.empty()) {
         char compressed[sizeof(entry.data.payload.bytes)];
         int clen = unishox2_compress(text.data(), (int)text.size(), compressed, (int)sizeof(compressed), USX_PSET_DFLT);
@@ -1335,6 +1341,7 @@ void MtCompact::sendTextMessage(const std::string& text, uint32_t dstnode, uint1
             }
         }
     }
+#endif
 
     entry.data.bitfield = 0;
     if (ok_to_mqtt) entry.data.bitfield |= 1 << BITFIELD_OK_TO_MQTT_SHIFT;  // Set the MQTT upload bit

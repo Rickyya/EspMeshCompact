@@ -57,7 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `saveChannels()` / `loadChannels()`. The channel list now survives a reboot,
   as the node database and private key already did.
 - `setTextCompression()`, opt-in Unishox2 compression for outgoing plain text.
-  Off by default.
+  Off at runtime and, more importantly, compiled out unless
+  `CONFIG_MTCOMPACT_TEXT_COMPRESSION` is set. Referencing the compressor at all
+  links `unishox2_compress_lines`, about 4.2 kB of flash, which a runtime flag
+  cannot avoid. Decompression is always built, so incoming compressed text is
+  understood regardless.
+- A `Kconfig` menu for the component, currently holding that one option.
 - A GitHub Actions workflow building both examples for esp32s3 on IDF v5.5.5 and
   checking that the packed component contains no app or build output.
 

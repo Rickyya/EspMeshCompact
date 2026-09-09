@@ -9,6 +9,7 @@
 #include "RadioLib.h"
 #include "EspHal.h"
 #include "esp_random.h"
+#include "esp_log.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/ccm.h"
 #include <string>
@@ -165,8 +166,20 @@ class MtCompact {
      *
      * Off by default: this changes what goes on air, and portnum 7 sees little
      * real-world traffic, so it is opt-in rather than a silent behaviour change.
+     *
+     * Requires CONFIG_MTCOMPACT_TEXT_COMPRESSION at build time as well. The
+     * compressor costs about 4.2 kB of flash, so it is not linked unless asked
+     * for; without it this setter has no effect. Receiving compressed text
+     * never needs the option.
      */
-    void setTextCompression(bool enabled) { compress_text = enabled; }
+    void setTextCompression(bool enabled) {
+#if !defined(CONFIG_MTCOMPACT_TEXT_COMPRESSION)
+        if (enabled) {
+            ESP_LOGW("MtCompact", "setTextCompression(true) ignored: rebuild with CONFIG_MTCOMPACT_TEXT_COMPRESSION");
+        }
+#endif
+        compress_text = enabled;
+    }
 
     // packet senders
     /**
