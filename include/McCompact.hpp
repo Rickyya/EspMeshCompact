@@ -49,7 +49,8 @@ class McCompact {
 
     using OnRaw = void (*)(const uint8_t* data, size_t len);
     using OnNodeInfo = void (*)(const MCC_Nodeinfo& info);
-    using OnGroupMsg = void (*)(const MCC_ChannelEntry& channel, const std::string& msg);  // todo extract other data
+    // MeshCore group text carries "<sender>: <message>"; sender is split out here.
+    using OnGroupMsg = void (*)(const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg);
 
     void setOnRaw(OnRaw cb) { onRaw = cb; }
     void setOnNodeInfo(OnNodeInfo cb) { onNodeInfo = cb; }

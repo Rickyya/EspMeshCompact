@@ -52,14 +52,31 @@ extern "C" void app_main(void) {
                *((uint8_t*)&info.pubkey[28]),
                info.name.c_str());
     });
-    mesh.setOnGroupMsg([](const MCC_ChannelEntry& channel, const std::string& msg) {
-        printf("Group Msg received on channel %s: %s\n", channel.name.c_str(), msg.c_str());
+    mesh.setOnGroupMsg([](const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg) {
+        printf("Group Msg on %s at %lu from %s: %s\n", channel.name.c_str(), timestamp, sender.c_str(), msg.c_str());
     });
     std::string name = "TestNode";
     McCompactHelpers::NodeInfoBuilder(mesh.getMyNodeInfo(), name, 47.4979, 19.0402, MCC_NODEINFO_FLAGS::IS_CHAT_NODE);
 
+    // Reuse the stored identity so this node keeps the same address across reboots.
+    mesh.loadPrivKey();
+    mesh.loadChannels();
+    mesh.loadNodeDb();
+
+    // No RTC here; a real deployment would set this from SNTP or a GPS fix.
+    mesh.setClock(1757000000);
+
+    int tick = 0;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(30000));
-        mesh.sendNeighborDiscoveryRequest(255);
+        if (tick % 4 == 0) {
+            mesh.sendMyNodeInfo();  // advertise ourselves
+        } else if (tick % 4 == 2) {
+            MCC_ChannelEntry* pub = mesh.chan_mgr.getChannelByName("Public");
+            if (pub) mesh.sendGroupMsg(*pub, "hello from EspMeshCompact");
+        } else {
+            mesh.sendNeighborDiscoveryRequest(255);
+        }
+        tick++;
     }
 }

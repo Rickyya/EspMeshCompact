@@ -525,16 +525,37 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
         size_t out_decoded_len = 0;
         auto chan = chan_mgr.getChannelByHashAndData(&data[pos], len - pos, decoded, out_decoded_len);
         if (out_decoded_len > 0 && chan) {
-            // todo extract other data too
-            if (debugmode) ESP_LOGI(TAG, "Decrypted group text length: %zu", out_decoded_len);
-            if (debugmode) ESP_LOGI(TAG, "Decrypted group text: %s", decoded + 5);
+            if (out_decoded_len < 5) {
+                if (debugmode) ESP_LOGE(TAG, "Group text too short: %zu", out_decoded_len);
+                return 0;
+            }
+            uint8_t txt_type = decoded[4];
+            if ((txt_type >> 2) != 0) {
+                if (debugmode) ESP_LOGI(TAG, "Unsupported group text type %u, dropped", txt_type >> 2);
+                return 0;
+            }
+            uint32_t timestamp;
+            memcpy(&timestamp, decoded, 4);
+
+            // The plaintext is zero-padded to the block size, so bound the scan.
+            size_t body_len = strnlen((const char*)(decoded + 5), out_decoded_len - 5);
+            std::string body((const char*)(decoded + 5), body_len);
+
+            // MeshCore formats the body as "<sender>: <message>".
+            std::string sender;
+            std::string grpmsg = body;
+            size_t sep = body.find(": ");
+            if (sep != std::string::npos) {
+                sender = body.substr(0, sep);
+                grpmsg = body.substr(sep + 2);
+            }
+
+            if (debugmode) ESP_LOGI(TAG, "Group text on %s from '%s': %s", chan->name.c_str(), sender.c_str(), grpmsg.c_str());
             if (onGroupMsg) {
-                size_t msglen = strnlen((const char*)(decoded + 5), out_decoded_len - 5);
-                std::string grpmsg = std::string((const char*)(decoded + 5), msglen);
-                onGroupMsg(*chan, grpmsg);
+                onGroupMsg(*chan, timestamp, sender, grpmsg);
             }
         } else {
-            if (debugmode) ESP_LOGE(TAG, "Failed to decrypt group text. chanhash: %d", data[0]);
+            if (debugmode) ESP_LOGE(TAG, "Failed to decrypt group text. chanhash: %d", data[pos]);
         }
         return 0;
     }
