@@ -1139,6 +1139,10 @@ void MtCompact::send_ack(MCT_Header& header) {
     entry.header.srcnode = my_nodeinfo.node_id;
     entry.header.packet_id = 0;
     entry.header.hop_limit = send_hop_limit;
+    // MCT_Header has no member initialisers and MCT_OutQueueEntry is
+    // default-initialised, so every field the packer reads must be set here.
+    // hop_start was being left indeterminate and going out on air as garbage.
+    entry.header.hop_start = send_hop_limit;
     entry.header.want_ack = 0;
     entry.header.via_mqtt = false;
     // A routing ACK references the id of the packet being acknowledged. This
@@ -1147,7 +1151,14 @@ void MtCompact::send_ack(MCT_Header& header) {
     // could never match the ACK to its pending packet.
     entry.data.request_id = header.packet_id;
     entry.header.chan_hash = header.chan_hash;
-    entry.encType = 1;
+    // Auto, not forced AES. A direct message arrives with chan_hash 0 and is
+    // PKI-encrypted; forcing AES sent the ACK under the default channel key,
+    // which a stock Meshtastic node will not attempt on a chan_hash 0 unicast,
+    // so the ACK was lost for the case that needs it most. Auto keeps channel
+    // traffic on the channel key and answers a PKI DM with PKI. The peer's
+    // public key is necessarily known here, since decrypting their message
+    // required it.
+    entry.encType = 0;
     entry.data.portnum = meshtastic_PortNum_ROUTING_APP;
     entry.data.want_response = 0;
     meshtastic_Routing c = meshtastic_Routing_init_default;
