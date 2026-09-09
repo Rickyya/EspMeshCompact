@@ -431,8 +431,21 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
     if (plt == MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ACK) {
         uint32_t crc = 0;
         if (len >= pos + 4) {
-            crc = *((uint32_t*)&data[pos]);
-            if (debugmode) ESP_LOGI(TAG, "ACK for CRC=0x%08" PRIx32, crc);
+            memcpy(&crc, &data[pos], 4);
+            const uint8_t* peer_pubkey = nullptr;
+            for (auto& p : mshcomp->pending_acks) {
+                if (p.valid && p.expected == crc) {
+                    p.valid = false;  // delivered; do not match it twice
+                    peer_pubkey = p.peer_pubkey;
+                    break;
+                }
+            }
+            if (debugmode) {
+                ESP_LOGI(TAG, "ACK 0x%08" PRIx32 " %s", crc, peer_pubkey ? "confirms our message" : "(not ours)");
+            }
+            if (mshcomp->onAck) {
+                mshcomp->onAck(peer_pubkey, crc, peer_pubkey != nullptr);
+            }
             return 1;
         }
     }
@@ -516,6 +529,9 @@ int16_t McCompact::ProcessPacket(uint8_t* data, int len, McCompact* mshcomp) {
             if (debugmode) ESP_LOGI(TAG, "TXT_MSG from '%s': timestamp=%lu, type=%u, msg=%s", sender->name.c_str(), timestamp, txt_type, msg.c_str());
             if (mshcomp->onTextMessage) {
                 mshcomp->onTextMessage(*sender, timestamp, txt_type, msg);
+            }
+            if (mshcomp->auto_ack && mshcomp->is_send_enabled && txt_type == MCC_TXT_TYPE_PLAIN) {
+                mshcomp->sendAckFor(datadec, lenn, sender->pubkey);
             }
             return 1;
         }
@@ -861,6 +877,37 @@ void McCompact::sendGroupMsg(const MCC_ChannelEntry& channel, const std::string&
     }
 }
 
+// The ACK proves receipt: it is a truncated hash of the message we just decoded
+// together with the sender's public key, so only a node that actually read the
+// message can produce it. MeshCore appends the extended attempt byte and a
+// random byte so retries of the same text do not collide in the seen-table.
+void McCompact::sendAckFor(const uint8_t* plain, int plain_len, const uint8_t* sender_pubkey) {
+    if (plain_len < 5) return;
+    size_t text_len = strnlen((const char*)&plain[5], (size_t)plain_len - 5);
+    size_t hashed_len = 5 + text_len;
+
+    uint8_t ack[6];
+    CompactHelpers::sha256(ack, 4, plain, (int)hashed_len, sender_pubkey, PUB_KEY_SIZE);
+    ack[4] = (hashed_len + 1 < (size_t)plain_len) ? plain[hashed_len + 1] : 0;
+    ack[5] = (uint8_t)esp_random();
+
+    McPacket_t packet;
+    MCC_Header header;
+    if (header.generate_header(&packet, (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_FLOOD,
+                               (uint8_t)MCC_PAYLOAD_TYPE::PAYLOAD_TYPE_ACK, {}, 1, 0) == 0) {
+        return;
+    }
+    if (packet.length + sizeof(ack) > sizeof(packet.payload)) return;
+    memcpy(&packet.payload[packet.length], ack, sizeof(ack));
+    packet.length += sizeof(ack);
+
+    if (out_queue.push(packet)) {
+        if (debugmode) ESP_LOGI(TAG, "ACK sent");
+    } else {
+        if (debugmode) ESP_LOGE(TAG, "Failed to send ACK, queue full");
+    }
+}
+
 void McCompact::sendTextMessage(MCC_Nodeinfo& peer, const std::string& msg, uint8_t attempt) {
     if (!hasIdentity(my_nodeinfo)) {
         if (debugmode) ESP_LOGE(TAG, "TextMessage: no identity, call loadPrivKey() first");
@@ -891,6 +938,16 @@ void McCompact::sendTextMessage(MCC_Nodeinfo& peer, const std::string& msg, uint
     memcpy(&plain[5], msg.data(), text_len);
     plain[5 + text_len] = 0;
     int plain_len = 5 + text_len;
+
+    // The recipient will hash the same bytes against OUR public key, so we can
+    // predict the ACK we should see and recognise it when it arrives.
+    uint32_t expected_ack;
+    CompactHelpers::sha256((uint8_t*)&expected_ack, 4, plain, plain_len, my_nodeinfo.pubkey, PUB_KEY_SIZE);
+    PendingAck& slot = pending_acks[next_pending_ack];
+    slot.expected = expected_ack;
+    memcpy(slot.peer_pubkey, peer.pubkey, PUB_KEY_SIZE);
+    slot.valid = true;
+    next_pending_ack = (next_pending_ack + 1) % MAX_PENDING_ACKS;
 
     uint8_t enc[MAX_PACKET_PAYLOAD];
     int enc_len = encryptThenMAC(peer.shared_secret, enc, plain, plain_len);

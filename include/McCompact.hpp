@@ -53,11 +53,18 @@ class McCompact {
     using OnGroupMsg = void (*)(const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg);
 
     using OnTextMessage = void (*)(const MCC_Nodeinfo& sender, uint32_t timestamp, uint8_t txt_type, const std::string& msg);
+    // matched is true when this ACK confirms a message we sent; peer_pubkey is
+    // then the recipient that acknowledged it, and null otherwise.
+    using OnAck = void (*)(const uint8_t* peer_pubkey, uint32_t ack_code, bool matched);
 
     void setOnRaw(OnRaw cb) { onRaw = cb; }
     void setOnNodeInfo(OnNodeInfo cb) { onNodeInfo = cb; }
     void setOnGroupMsg(OnGroupMsg cb) { onGroupMsg = cb; }
     void setOnTextMessage(OnTextMessage cb) { onTextMessage = cb; }
+    void setOnAck(OnAck cb) { onAck = cb; }
+
+    // Whether to reply with an ACK when a direct text message arrives.
+    void setAutoAck(bool enabled) { auto_ack = enabled; }
 
     void getLastSignalData(float& rssi_out, float& snr_out) {
         rssi_out = rssi;
@@ -205,6 +212,22 @@ class McCompact {
     OnNodeInfo onNodeInfo = nullptr;
     OnGroupMsg onGroupMsg = nullptr;
     OnTextMessage onTextMessage = nullptr;
+    OnAck onAck = nullptr;
+
+    bool auto_ack = true;
+
+    // Messages we have sent and are still expecting an ACK for. Small ring;
+    // the oldest entry is silently overwritten.
+    struct PendingAck {
+        uint32_t expected;
+        uint8_t peer_pubkey[PUB_KEY_SIZE];
+        bool valid;
+    };
+    static constexpr size_t MAX_PENDING_ACKS = 8;
+    PendingAck pending_acks[MAX_PENDING_ACKS] = {};
+    size_t next_pending_ack = 0;
+
+    void sendAckFor(const uint8_t* plain, int plain_len, const uint8_t* sender_pubkey);
 
     McCompactOutQueue out_queue;  // Outgoing queue for packets to be sent
 };

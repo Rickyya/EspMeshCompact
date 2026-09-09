@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <inttypes.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -53,10 +54,10 @@ extern "C" void app_main(void) {
                info.name.c_str());
     });
     mesh.setOnGroupMsg([](const MCC_ChannelEntry& channel, uint32_t timestamp, const std::string& sender, const std::string& msg) {
-        printf("Group Msg on %s at %lu from %s: %s\n", channel.name.c_str(), timestamp, sender.c_str(), msg.c_str());
+        printf("Group Msg on %s at %" PRIu32 " from %s: %s\n", channel.name.c_str(), timestamp, sender.c_str(), msg.c_str());
     });
     mesh.setOnTextMessage([](const MCC_Nodeinfo& sender, uint32_t timestamp, uint8_t txt_type, const std::string& msg) {
-        printf("DM from %s at %lu (type %u): %s\n", sender.name.c_str(), timestamp, txt_type, msg.c_str());
+        printf("DM from %s at %" PRIu32 " (type %u): %s\n", sender.name.c_str(), timestamp, txt_type, msg.c_str());
         // Echo it back. The callback hands out a const view, so re-find the
         // contact in the DB to get a reference we can cache the secret on.
         for (auto& peer : mesh.nodeinfo_db) {
@@ -64,6 +65,14 @@ extern "C" void app_main(void) {
                 mesh.sendTextMessage(peer, "ack: " + msg);
                 break;
             }
+        }
+    });
+
+    mesh.setOnAck([](const uint8_t* peer_pubkey, uint32_t ack_code, bool matched) {
+        if (matched) {
+            printf("Delivered: %02x%02x... acknowledged 0x%08" PRIx32 "\n", peer_pubkey[0], peer_pubkey[1], ack_code);
+        } else {
+            printf("ACK 0x%08" PRIx32 " seen, not for us\n", ack_code);
         }
     });
 
