@@ -137,7 +137,7 @@ class MCC_Header {
             transport_codes = 0;
         }
         uint8_t meta = data[pos++];
-        uint8_t path_size = ((meta >> 6) & 0x03) + 1;      // 1, 2, or 3 bytes per hop
+        path_size = ((meta >> 6) & 0x03) + 1;              // 1, 2, or 3 bytes per hop
         uint8_t path_count = (meta & 0x3F);                // Number of hops
         if (len < pos + path_count * path_size) return 0;  // Not enough data for the path
         path.resize(path_count);
@@ -158,20 +158,27 @@ class MCC_Header {
     }
 
     size_t generate_header(uint8_t* buffer, size_t buffer_len, uint8_t route_type, uint8_t payload_type, std::vector<uint32_t> path, uint8_t path_bytenum = 1, uint32_t transport_code = 0) {
-        if (buffer_len < 4) return 0;
+        if (path_bytenum < 1 || path_bytenum > 3) return 0;
+        if (path.size() > 63) return 0;
+        bool has_transport = (route_type & 0x03) == (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_FLOOD ||
+                             (route_type & 0x03) == (uint8_t)MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_DIRECT;
+        size_t needed = 1 + (has_transport ? 4 : 0) + 1 + path.size() * path_bytenum;
+        if (buffer_len < needed) return 0;
+
         size_t pos = 0;
         header = (route_type & 0x03) | ((payload_type & 0x0F) << 2) | (((uint8_t)MCC_PAYLOADVER::PAYLOAD_V1 & 0x03) << 6);
         buffer[pos++] = header;
-        if (get_route_type() == MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_FLOOD || get_route_type() == MCC_ROUTE_TYPE::ROUTE_TYPE_TRANSPORT_DIRECT) {
+        if (has_transport) {
             // in this case we have transport code 4 bytes
             *((uint32_t*)&buffer[pos]) = transport_code;
             pos += 4;
         }
+        path_size = path_bytenum;
         uint8_t meta = ((path_bytenum - 1) & 0x03) << 6;  // path_size is 1,2,3 -> store as 0,1,2
         meta |= (path.size() & 0x3F);
         buffer[pos++] = meta;
         for (const auto& hop : path) {
-            for (int b = 0; b < path_size; ++b) {
+            for (int b = 0; b < path_bytenum; ++b) {
                 buffer[pos++] = (hop >> (8 * b)) & 0xFF;
             }
         }

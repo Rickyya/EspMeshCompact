@@ -717,10 +717,10 @@ void McCompact::sendNeighborDiscoveryRequest(uint8_t filter, std::vector<uint32_
     uint32_t tag = esp_random();
     packet.payload[packet.length++] = 0x80;  // control packet type: request for node data
     packet.payload[packet.length++] = filter;
-    packet.payload[packet.length++] = (tag >> 24) & 0xFF;
-    packet.payload[packet.length++] = (tag >> 16) & 0xFF;
-    packet.payload[packet.length++] = (tag >> 8) & 0xFF;
     packet.payload[packet.length++] = tag & 0xFF;
+    packet.payload[packet.length++] = (tag >> 8) & 0xFF;
+    packet.payload[packet.length++] = (tag >> 16) & 0xFF;
+    packet.payload[packet.length++] = (tag >> 24) & 0xFF;
     packet.payload[packet.length++] = 0;  // optional since uint32_t
     packet.payload[packet.length++] = 0;
     packet.payload[packet.length++] = 0;
