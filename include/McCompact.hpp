@@ -20,6 +20,8 @@
 #include "McCompatChanMgr.hpp"
 #include "McCompactOutQueue.hpp"
 #include "mbedtls/constant_time.h"
+#include "esp_timer.h"
+#include <ctime>
 
 #define MAX_PACKET_PAYLOAD 184
 #define PUB_KEY_SIZE 32
@@ -58,6 +60,18 @@ class McCompact {
 
     NodeInfoCoreDB nodeinfo_db{};
     McCompatChanMgr chan_mgr{};
+
+    // MeshCore stamps adverts and messages with epoch seconds, and uses them to
+    // reject replayed adverts. Falls back to time(NULL) until setClock() is called.
+    void setClock(uint32_t epoch_secs) {
+        clock_base = epoch_secs;
+        clock_set_us = esp_timer_get_time();
+        clock_is_set = true;
+    }
+    uint32_t getCurrentTime() const {
+        if (!clock_is_set) return (uint32_t)time(NULL);
+        return clock_base + (uint32_t)((esp_timer_get_time() - clock_set_us) / 1000000);
+    }
 
     static int decrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
     static int encrypt(const uint8_t* shared_secret, uint8_t* dest, const uint8_t* src, int src_len);
@@ -138,6 +152,10 @@ class McCompact {
     bool debugmode = false;  // if true, enables debug logging
 
     bool is_send_enabled = true;  // if false, disables sending of packets
+
+    uint32_t clock_base = 0;
+    int64_t clock_set_us = 0;
+    bool clock_is_set = false;
 
     MCC_MyNodeInfo my_nodeinfo;
     OnRaw onRaw = nullptr;
