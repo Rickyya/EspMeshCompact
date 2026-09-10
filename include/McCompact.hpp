@@ -91,12 +91,36 @@ class McCompact {
         snr_out = snr;
     }
 
+    /**
+     * @brief Instantaneous RSSI, i.e. the noise floor, rather than the
+     *        signal of the last packet.
+     *
+     * A radio actually listening reports roughly -95 to -125 dBm depending
+     * on band noise. A reading of 0, or one pinned to a constant, means the
+     * modem is not in receive mode and no packet can ever arrive.
+     * MeshCore exposes the same value as RadioLibWrapper::getCurrentRSSI.
+     */
+    float getCurrentRSSI();
+
+    /**
+     * @brief Carrier offset of the last received packet, in Hz.
+     *
+     * LoRa tolerates roughly a quarter of the bandwidth in offset, so 62.5 kHz
+     * bandwidth allows about +/-15.6 kHz (18 ppm at 869 MHz) while 250 kHz
+     * allows +/-62.5 kHz (72 ppm). An oscillator between those two receives
+     * fine on a wide preset and is completely deaf on a narrow one.
+     */
+    float getFrequencyError();
+
     // Radio settings on the fly
     bool setRadioFrequency(float freq);
     bool setRadioSpreadingFactor(uint8_t sf);
     bool setRadioBandwidth(uint32_t bw);
     bool setRadioCodingRate(uint8_t cr);
     bool setRadioPower(int8_t power);
+    // 0x12 is MeshCore (RADIOLIB_SX126X_SYNC_WORD_PRIVATE); Meshtastic uses 0x2b.
+    bool setRadioSyncWord(uint8_t sync_word);
+    bool setRadioPreambleLength(uint16_t symbols);
 
     NodeInfoCoreDB nodeinfo_db{};
     McCompatChanMgr chan_mgr{};

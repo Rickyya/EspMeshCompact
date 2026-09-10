@@ -30,9 +30,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching MeshCore's own `companion_radio` chat-node firmware. Adverts are only
   relayed once their signature verifies, and datagrams addressed to this node are
   consumed rather than relayed.
+- `McCompact::getCurrentRSSI`, the instantaneous channel RSSI rather than the
+  last packet's, matching MeshCore's `RadioLibWrapper::getCurrentRSSI`. A radio
+  in receive reports a noise floor; one left in standby reports a constant, which
+  is otherwise indistinguishable from a quiet band.
+- `McCompact::getFrequencyError`, the carrier offset of the last received packet.
+  LoRa tolerates about a quarter of the bandwidth, so an oscillator error between
+  18 and 72 ppm at 869 MHz receives fine on a 250 kHz preset and is completely
+  deaf on a 62.5 kHz one. Without this the two cases look identical.
+- `McCompact::setRadioSyncWord` and `setRadioPreambleLength`, completing the
+  runtime radio setters. The sync word is what separates MeshCore (0x12) from
+  Meshtastic (0x2b) on an otherwise identical channel.
 
 ### Fixed
 
+- **Every `setRadio*` method left the modem in standby**, so changing any radio
+  parameter at runtime silently ended reception until the next reboot. RadioLib
+  drops to standby to reconfigure and does not return to receive on its own;
+  each setter now does.
+- `startReceive()`'s return value was discarded at all three call sites. A
+  failure to enter receive produced a node that heard nothing, logged nothing,
+  and was indistinguishable from a band with no traffic on it. The listen task
+  now reports it.
+- `examples/mc_receiver` advertised a preamble of 16 symbols at SF 8. MeshCore's
+  `RadioLibWrapper::preambleLengthForSF` gives 32 at SF 8 and below, applied by
+  `setParams()` at boot over the 16 its `begin()` is handed.
 - **MeshCore direct messages never worked.** The receive path used each contact's
   raw public key as the decryption key instead of the ECDH shared secret, so the
   MAC never matched and every `TXT_MSG`, `REQ`, `RESPONSE` and `PATH` was silently

@@ -43,6 +43,12 @@ bool McCompact::setRadioFrequency(float freq) {
         std::lock_guard<std::mutex> lock(mtx_radio);
         state = radio->setFrequency(freq);
     }
+    // RadioLib drops to standby to reconfigure and stays there, so
+    // without this the radio silently stops receiving.
+    if (state == RADIOLIB_ERR_NONE) {
+        std::lock_guard<std::mutex> lock(mtx_radio);
+        radio->startReceive();
+    }
     return (state == RADIOLIB_ERR_NONE);
 }
 bool McCompact::setRadioSpreadingFactor(uint8_t sf) {
@@ -71,6 +77,9 @@ bool McCompact::setRadioSpreadingFactor(uint8_t sf) {
                 state = RADIOLIB_ERR_UNKNOWN;
                 break;
         }
+        // RadioLib drops to standby to reconfigure and stays there, so
+        // without this the radio silently stops receiving.
+        if (state == RADIOLIB_ERR_NONE) radio->startReceive();
         return (state == RADIOLIB_ERR_NONE);
     }
 }
@@ -101,6 +110,9 @@ bool McCompact::setRadioBandwidth(uint32_t bw) {
                 state = RADIOLIB_ERR_UNKNOWN;
                 break;
         }
+        // RadioLib drops to standby to reconfigure and stays there, so
+        // without this the radio silently stops receiving.
+        if (state == RADIOLIB_ERR_NONE) radio->startReceive();
         return (state == RADIOLIB_ERR_NONE);
     }
 }
@@ -131,6 +143,9 @@ bool McCompact::setRadioCodingRate(uint8_t cr) {
                 state = RADIOLIB_ERR_UNKNOWN;
                 break;
         }
+        // RadioLib drops to standby to reconfigure and stays there, so
+        // without this the radio silently stops receiving.
+        if (state == RADIOLIB_ERR_NONE) radio->startReceive();
         return (state == RADIOLIB_ERR_NONE);
     }
 }
@@ -143,7 +158,70 @@ bool McCompact::setRadioPower(int8_t power) {
         std::lock_guard<std::mutex> lock(mtx_radio);
         state = radio->setOutputPower(power);
     }
+    // RadioLib drops to standby to reconfigure and stays there, so
+    // without this the radio silently stops receiving.
+    if (state == RADIOLIB_ERR_NONE) {
+        std::lock_guard<std::mutex> lock(mtx_radio);
+        radio->startReceive();
+    }
     return (state == RADIOLIB_ERR_NONE);
+}
+
+bool McCompact::setRadioSyncWord(uint8_t sync_word) {
+    if (radio == nullptr) return false;
+    int state = RADIOLIB_ERR_NONE;
+    {
+        std::lock_guard<std::mutex> lock(mtx_radio);
+        switch (radio_type) {
+            case RadioType::SX1261:
+            case RadioType::SX1262:
+            case RadioType::SX1268:
+                state = ((SX126x*)radio)->setSyncWord(sync_word);
+                break;
+            default:
+                return false;  // only the SX126x family is wired up here
+        }
+        if (state == RADIOLIB_ERR_NONE) radio->startReceive();
+    }
+    return (state == RADIOLIB_ERR_NONE);
+}
+
+bool McCompact::setRadioPreambleLength(uint16_t symbols) {
+    if (radio == nullptr) return false;
+    int state = RADIOLIB_ERR_NONE;
+    {
+        std::lock_guard<std::mutex> lock(mtx_radio);
+        state = radio->setPreambleLength(symbols);
+        if (state == RADIOLIB_ERR_NONE) radio->startReceive();
+    }
+    return (state == RADIOLIB_ERR_NONE);
+}
+
+float McCompact::getFrequencyError() {
+    if (radio == nullptr) return 0.0f;
+    std::lock_guard<std::mutex> lock(mtx_radio);
+    switch (radio_type) {
+        case RadioType::SX1261:
+        case RadioType::SX1262:
+        case RadioType::SX1268:
+            return ((SX126x*)radio)->getFrequencyError();
+        default:
+            return 0.0f;
+    }
+}
+
+float McCompact::getCurrentRSSI() {
+    if (radio == nullptr) return 0.0f;
+    std::lock_guard<std::mutex> lock(mtx_radio);
+    switch (radio_type) {
+        case RadioType::SX1261:
+        case RadioType::SX1262:
+        case RadioType::SX1268:
+            // false = current channel RSSI, not the last packet's.
+            return ((SX126x*)radio)->getRSSI(false);
+        default:
+            return radio->getRSSI();
+    }
 }
 
 bool McCompact::RadioInit(RadioType radio_type, Radio_PINS& radio_pins, LoraConfig& lora_config) {
@@ -324,7 +402,12 @@ void McCompact::task_listen(void* pvParameters) {
     McCompact* mshcomp = static_cast<McCompact*>(pvParameters);
     if (mshcomp->debugmode) ESP_LOGI(pcTaskGetName(NULL), "Start");
     uint8_t rxData[256];  // Maximum Payload size of SX1261/62/68 is 255
-    mshcomp->radio->startReceive();
+    int16_t rx_state = mshcomp->radio->startReceive();
+    if (rx_state != RADIOLIB_ERR_NONE) {
+        // Silently ignoring this leaves the modem in standby, looking
+        // exactly like a band with no traffic on it.
+        ESP_LOGE(TAG, "startReceive() failed, code %d -- radio is NOT listening", rx_state);
+    }
     while (mshcomp->need_run) {
         if (packetFlag) {
             if (!mshcomp->need_run) break;

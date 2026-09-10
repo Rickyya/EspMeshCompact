@@ -17,7 +17,10 @@ LoraConfig lora_config_mc = {
     /*.spreading_factor = */ 8,  // config
     /*.coding_rate = */ 8,       // config
     /*.sync_word = */ 0x12,
-    /*.preamble_length = */ 16,
+    // MeshCore overrides the preamble it hands to begin(): RadioLibWrapper::
+    // preambleLengthForSF gives 32 symbols at SF<=8 and 16 above, applied by
+    // setParams() at boot. Change this alongside the spreading factor.
+    /*.preamble_length = */ 32,
     /*.output_power = */ 22,  // config
     /*.tcxo_voltage = */ 1.8,
     /*.use_regulator_ldo = */ false,
